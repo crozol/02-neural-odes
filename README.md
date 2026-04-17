@@ -1,45 +1,45 @@
-# Neural ODEs para sistemas dinámicos
+# Neural ODEs for dynamical systems
 
-Aprender el campo vectorial de un sistema dinámico (péndulo amortiguado, Lotka-Volterra) desde trayectorias observadas, usando Neural ODEs (Chen et al., 2018).
+Learning the vector field of a dynamical system (damped pendulum, Lotka-Volterra) from observed trajectories, using Neural ODEs (Chen et al., 2018).
 
-## Motivación
+## Motivation
 
-Las redes neuronales clásicas aprenden funciones directas `x → y`. Las Neural ODEs aprenden la **derivada** `dy/dt = f_θ(y, t)` y la integran con un solver numérico. Esto permite:
+Classic neural networks learn direct functions `x → y`. **Neural ODEs** learn the **derivative** `dy/dt = f_θ(y, t)` and integrate it with a numerical solver. This allows:
 
-- Tratar el "número de capas" como un hiperparámetro continuo (tiempo de integración).
-- Respetar conservaciones físicas con la estructura correcta.
-- Extrapolar dinámica fuera del rango de entrenamiento.
+- Treating "number of layers" as a continuous hyperparameter (integration time).
+- Respecting physical conservation laws through architectural structure.
+- Extrapolating dynamics beyond the training range.
 
-Este proyecto aprovecha el background en EDOs: la arquitectura es natural de entender.
+This project leverages the physics-mathematics background: if you understand ODEs well, the architecture is intuitive.
 
 ## Stack
 
 - Python 3.11+
 - PyTorch 2.x
-- torchdiffeq (integradores diferenciables)
+- torchdiffeq (differentiable integrators)
 - Matplotlib
 
-## Estructura
+## Structure
 
 ```
 02-neural-odes/
 ├── README.md
 ├── requirements.txt
 ├── src/
-│   ├── systems.py        # Sistemas de referencia (péndulo, Lotka-Volterra)
-│   ├── ode_net.py        # Red neuronal que aproxima f(y, t)
-│   └── train.py          # Training loop + evaluación
+│   ├── systems.py        # Reference systems (pendulum, Lotka-Volterra)
+│   ├── ode_net.py        # Neural network approximating f(y, t)
+│   └── train.py          # Training loop + evaluation
 └── notebooks/
 ```
 
 ## Roadmap
 
-- [ ] Implementar sistemas de referencia y generar trayectorias sintéticas con ruido.
-- [ ] Definir `ODEFunc` (MLP que aproxima el campo vectorial).
-- [ ] Training loop con `odeint` de torchdiffeq.
-- [ ] Evaluar extrapolación más allá del horizonte de entrenamiento.
-- [ ] GIF comparando trayectoria real vs. trayectoria predicha.
+- [ ] Implement reference systems and generate synthetic trajectories with noise.
+- [ ] Define `ODEFunc` (MLP approximating the vector field).
+- [ ] Training loop with torchdiffeq's `odeint`.
+- [ ] Evaluate extrapolation beyond the training horizon.
+- [ ] GIF comparing real vs. predicted trajectory.
 
-## Resultado esperado
+## Expected results
 
-Una red de ~3 capas MLP, entrenada con trayectorias de 5 segundos, debería extrapolar correctamente a 10+ segundos, conservando aproximadamente la energía del sistema.
+A ~3-layer MLP, trained with 5-second trajectories, should extrapolate correctly to 10+ seconds, approximately conserving the system's energy.
