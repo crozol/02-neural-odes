@@ -15,3 +15,5 @@ checkpoints/
 *.pt
 *.pth
 *.log
+run.log
+data/
