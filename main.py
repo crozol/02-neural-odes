@@ -99,6 +99,24 @@ def run_pendulum(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
     energy_drift = float(abs(energy_pred[-1] - energy_true[-1]) /
                          (abs(energy_true[-1]) + 1e-12))
 
+    np.savez_compressed(
+        data_dir / "pendulum_arrays.npz",
+        t=ev.t.astype(np.float32),
+        y_true=ev.y_true.astype(np.float32),
+        y_pred=ev.y_pred.astype(np.float32),
+        energy_true=energy_true.astype(np.float32),
+        energy_pred=energy_pred.astype(np.float32),
+        loss_history=np.asarray(res.loss_history, dtype=np.float32),
+        vf_X=vf[0].numpy().astype(np.float32),
+        vf_Y=vf[1].numpy().astype(np.float32),
+        vf_U=vf[2].numpy().astype(np.float32),
+        vf_V=vf[3].numpy().astype(np.float32),
+        t_train_max=np.float32(t_train_max),
+        t_full_max=np.float32(t_full_max),
+        grow_every=np.int32(cfg.grow_every),
+        noise_obs=np.float32(noise),
+    )
+
     metrics = dict(
         system="damped_pendulum",
         n_params=res.n_params,
@@ -170,6 +188,24 @@ def run_lotka(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
                            str(out_dir / "lotka_phase.png"))
 
     invariant_drift = float(np.std(invariant_pred) / (np.abs(invariant_true.mean()) + 1e-12))
+
+    np.savez_compressed(
+        data_dir / "lotka_arrays.npz",
+        t=ev.t.astype(np.float32),
+        y_true=ev.y_true.astype(np.float32),
+        y_pred=ev.y_pred.astype(np.float32),
+        invariant_true=invariant_true.astype(np.float32),
+        invariant_pred=invariant_pred.astype(np.float32),
+        loss_history=np.asarray(res.loss_history, dtype=np.float32),
+        vf_X=vf[0].numpy().astype(np.float32),
+        vf_Y=vf[1].numpy().astype(np.float32),
+        vf_U=vf[2].numpy().astype(np.float32),
+        vf_V=vf[3].numpy().astype(np.float32),
+        t_train_max=np.float32(t_train_max),
+        t_full_max=np.float32(t_full_max),
+        grow_every=np.int32(cfg.grow_every),
+        noise_obs=np.float32(noise),
+    )
 
     metrics = dict(
         system="lotka_volterra",

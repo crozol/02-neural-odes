@@ -261,7 +261,7 @@ Four figures characterise the fit. All are produced by `python main.py`
 | Final training MSE | **1.5 · 10⁻⁴** (~6× the noise floor `(0.005)² = 2.5 · 10⁻⁵`) |
 | MSE on clean trajectory · training horizon | **1.4 · 10⁻⁴** |
 | MSE on clean trajectory · extrapolation half | **1.6 · 10⁻²** |
-| Relative extrapolation error `√MSE / max\|y\|` | **6.3 %** |
+| Relative extrapolation error `√MSE / max\|y\|` | **5.4 %** |
 | Final-time energy drift `\|ΔE/E\|` | **137 %** (interpretation in §6.4) |
 
 ### 6.1 · Training loss
