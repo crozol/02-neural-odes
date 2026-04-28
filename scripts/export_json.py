@@ -46,17 +46,18 @@ def _system_payload(npz_path: Path, *, max_traj: int = 400, max_loss: int = 1200
         "y_true": y_true.tolist(),
         "y_pred": y_pred.tolist(),
         "loss_history": _thin(z["loss_history"], max_loss).tolist(),
-        "vf": {
-            "X": z["vf_X"].tolist(),
-            "Y": z["vf_Y"].tolist(),
-            "U": z["vf_U"].tolist(),
-            "V": z["vf_V"].tolist(),
-        },
         "t_train_max": float(z["t_train_max"]),
         "t_full_max": float(z["t_full_max"]),
         "grow_every": int(z["grow_every"]),
         "noise_obs": float(z["noise_obs"]),
     }
+    if "vf_X" in z.files:
+        payload["vf"] = {
+            "X": z["vf_X"].tolist(),
+            "Y": z["vf_Y"].tolist(),
+            "U": z["vf_U"].tolist(),
+            "V": z["vf_V"].tolist(),
+        }
 
     if "energy_true" in z.files:
         payload["energy_true"] = _thin(z["energy_true"], max_traj).tolist()
@@ -81,6 +82,10 @@ def main(out_path: str = "../website/assets/data/02-neural-odes.json",
         "pendulum": pendulum,
         "lotka": lotka,
     }
+
+    hnn_path = data_root / "lotka_hnn_arrays.npz"
+    if hnn_path.exists():
+        bundle["lotka_hnn"] = _system_payload(hnn_path)
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)

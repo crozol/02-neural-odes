@@ -319,3 +319,113 @@ def plot_lotka_time(t, y_true, y_pred, t_train_max, out_path: str) -> None:
         labels=("prey  x", "predator  z"),
         system_name="Lotka-Volterra",
     )
+
+
+# --------------------------------------------------------------------------- #
+#  HNN ablation · MLP vs HNN comparison
+# --------------------------------------------------------------------------- #
+
+def plot_phase_triple(y_true, y_mlp, y_hnn, vector_field, out_path: str,
+                      *, axis_labels=("prey  x", "predator  z"),
+                      title: str = "Phase plane · MLP vs HNN  ·  Lotka-Volterra") -> None:
+    """Three-orbit overlay (truth / unconstrained MLP / HNN) on the *MLP-learned*
+    vector field — so the speed colormap is identical to the baseline figure
+    and the visible difference is purely in the orbit shape."""
+    import matplotlib.pyplot as plt
+
+    _style()
+    fig, ax = plt.subplots(figsize=(8.6, 7.2))
+    fig.patch.set_facecolor(BG_PANEL)
+
+    X, Y, U, V = vector_field
+    if hasattr(X, "numpy"):
+        X, Y, U, V = X.numpy(), Y.numpy(), U.numpy(), V.numpy()
+    speed = np.sqrt(U ** 2 + V ** 2)
+    strm = ax.streamplot(
+        X, Y, U, V,
+        color=speed, cmap="magma", density=1.25, linewidth=0.9,
+        arrowsize=1.05,
+    )
+
+    ax.plot(y_true[:, 0], y_true[:, 1], color=CYAN, lw=2.5,
+            label="ground-truth orbit", zorder=4, alpha=0.95)
+    ax.plot(y_mlp[:, 0], y_mlp[:, 1], color=PURPLE, lw=1.9, ls="--",
+            label="unconstrained MLP", zorder=5, alpha=0.95)
+    ax.plot(y_hnn[:, 0], y_hnn[:, 1], color=PINK, lw=2.0, ls="-.",
+            label="Hamiltonian NN", zorder=6, alpha=0.95)
+
+    ax.scatter([y_true[0, 0]], [y_true[0, 1]], color=AMBER, s=110, zorder=7,
+               edgecolor=BG_PANEL, linewidth=1.8, marker="o",
+               label="initial state · t = 0")
+    ax.scatter([y_true[-1, 0]], [y_true[-1, 1]], color=CYAN, s=70, zorder=7,
+               edgecolor=BG_PANEL, linewidth=1.5, marker="s",
+               label="ground-truth final")
+    ax.scatter([y_mlp[-1, 0]], [y_mlp[-1, 1]], color=PURPLE, s=70, zorder=7,
+               edgecolor=BG_PANEL, linewidth=1.5, marker="D",
+               label="MLP final")
+    ax.scatter([y_hnn[-1, 0]], [y_hnn[-1, 1]], color=PINK, s=80, zorder=7,
+               edgecolor=BG_PANEL, linewidth=1.5, marker="*",
+               label="HNN final")
+
+    cbar = fig.colorbar(strm.lines, ax=ax, pad=0.02, shrink=0.88, aspect=28)
+    cbar.set_label("MLP-learned speed  ‖f$_θ$‖", color=FG_1)
+    cbar.ax.yaxis.set_tick_params(color=FG_1, labelcolor=FG_1)
+    cbar.outline.set_edgecolor(SPINE)
+
+    ax.set_xlabel(axis_labels[0])
+    ax.set_ylabel(axis_labels[1])
+    ax.set_title(title, loc="left", pad=10)
+    ax.legend(loc="upper right", framealpha=0.96, fontsize=9.4, ncol=2)
+
+    fig.tight_layout()
+    _save(fig, out_path)
+    plt.close(fig)
+
+
+def plot_invariant_comparison(t, H_true, H_mlp, H_hnn, t_train_max,
+                              out_path: str,
+                              *, ylabel: str = "conserved quantity  H",
+                              title: str = "Invariant drift · MLP vs HNN  ·  Lotka-Volterra") -> None:
+    """Three-line plot of the conserved quantity along the predicted trajectory
+    (MLP, HNN) and the ground-truth flat reference. Annotates the relative
+    standard deviation of each prediction."""
+    import matplotlib.pyplot as plt
+
+    _style()
+    fig, ax = plt.subplots(figsize=(10.0, 5.0))
+    fig.patch.set_facecolor(BG_PANEL)
+
+    ax.axvspan(t_train_max, t.max(), color=AMBER, alpha=0.07, zorder=0,
+               label="extrapolation region")
+
+    ax.plot(t, H_true, color=CYAN, lw=2.4, label="ground truth", zorder=3)
+    ax.plot(t, H_mlp, color=PURPLE, lw=1.9, ls="--",
+            label="unconstrained MLP", zorder=4)
+    ax.plot(t, H_hnn, color=PINK, lw=2.0, ls="-.",
+            label="Hamiltonian NN", zorder=5)
+    ax.axvline(t_train_max, color=AMBER, lw=1.5, ls="--", alpha=0.8)
+
+    H_ref = float(np.abs(H_true.mean()) + 1e-12)
+    drift_mlp = float(np.std(H_mlp) / H_ref)
+    drift_hnn = float(np.std(H_hnn) / H_ref)
+    ratio = drift_mlp / max(drift_hnn, 1e-12)
+
+    info = (
+        f"std(H) / |⟨H⟩|  ·  MLP = {drift_mlp:.2%}\n"
+        f"std(H) / |⟨H⟩|  ·  HNN = {drift_hnn:.2%}\n"
+        f"reduction      ·  ×{ratio:,.1f}"
+    )
+    ax.text(0.012, 0.05, info,
+            transform=ax.transAxes, ha="left", va="bottom",
+            fontsize=10.5, color=FG_0, family=MONO,
+            bbox=dict(boxstyle="round,pad=0.45", facecolor=BG_PANEL,
+                      edgecolor=PINK, linewidth=0.9, alpha=0.95))
+
+    ax.set_xlabel("time  t")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, loc="left", pad=10)
+    ax.legend(loc="upper right", framealpha=0.96, fontsize=10, ncol=2)
+
+    fig.tight_layout()
+    _save(fig, out_path)
+    plt.close(fig)
