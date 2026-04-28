@@ -157,8 +157,11 @@ def evaluate(func: nn.Module, y0: np.ndarray, t_full: np.ndarray,
     mse_train = float(np.mean((y_pred[train_mask] - y_true_full[train_mask]) ** 2))
     mse_extrap = float(np.mean((y_pred[extrap_mask] - y_true_full[extrap_mask]) ** 2))
 
-    denom = float(np.mean(y_true_full[extrap_mask] ** 2)) + 1e-12
-    rel_err_extrap = float(np.sqrt(mse_extrap / denom))
+    # Normalise by the *peak* amplitude of the full ground-truth trajectory.
+    # This avoids the rel-err blow-up when y_true approaches zero in the
+    # extrapolation window (e.g. a damped pendulum coming to rest).
+    scale = float(np.max(np.abs(y_true_full))) + 1e-12
+    rel_err_extrap = float(np.sqrt(mse_extrap) / scale)
 
     return EvalResult(
         t=t_full, y_true=y_true_full, y_pred=y_pred,

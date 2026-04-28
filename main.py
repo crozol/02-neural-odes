@@ -50,11 +50,11 @@ def run_pendulum(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
 
     params = PendulumParams()
     y0 = np.array([2.0, 0.0])              # large initial angle, no angular velocity
-    t_train_max = 10.0
-    t_full_max = 18.0
-    n_train = 320
-    n_full = 540
-    noise = 0.01
+    t_train_max = 12.0
+    t_full_max = 20.0
+    n_train = 360
+    n_full = 600
+    noise = 0.005
 
     t_train = np.linspace(0.0, t_train_max, n_train)
     t_full = np.linspace(0.0, t_full_max, n_full)
@@ -64,9 +64,9 @@ def run_pendulum(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
     y_full = generate_trajectory(damped_pendulum, y0, t_full, params=params)
 
     cfg = TrainConfig(
-        dim=2, hidden=64, depth=3,
-        epochs=2000, lr=5e-3,
-        grow_every=80, grow_start=20,
+        dim=2, hidden=96, depth=3,
+        epochs=2500, lr=4e-3,
+        grow_every=70, grow_start=20,
         log_every=100, seed=seed,
     )
     res = train(
@@ -126,11 +126,11 @@ def run_lotka(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
 
     params = LotkaParams()
     y0 = np.array([10.0, 5.0])
-    t_train_max = 18.0
-    t_full_max = 32.0
-    n_train = 360
-    n_full = 640
-    noise = 0.05
+    t_train_max = 12.0
+    t_full_max = 22.0
+    n_train = 300
+    n_full = 550
+    noise = 0.03
 
     t_train = np.linspace(0.0, t_train_max, n_train)
     t_full = np.linspace(0.0, t_full_max, n_full)
@@ -140,9 +140,9 @@ def run_lotka(out_dir: Path, data_dir: Path, seed: int = 0) -> dict:
     y_full = generate_trajectory(lotka_volterra, y0, t_full, params=params)
 
     cfg = TrainConfig(
-        dim=2, hidden=64, depth=3,
-        epochs=2000, lr=5e-3,
-        grow_every=80, grow_start=20,
+        dim=2, hidden=96, depth=3,
+        epochs=2000, lr=2e-3,
+        grow_every=80, grow_start=30,
         log_every=100, seed=seed + 1,
     )
     res = train(
