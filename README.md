@@ -108,7 +108,7 @@ Two warnings about how training feels in practice:
 1. **The loss surface is rougher than for a feedforward net.** Long
    integrations amplify gradients of the early-time portion, so the loss can
    spike when the network briefly explores a region with stiffer dynamics.
-   The curriculum in §5.4 directly addresses this.
+   The curriculum in section 5.4 directly addresses this.
 2. **Numerical method matters.** A Tanh MLP is smooth, but the solver still
    needs reasonable tolerances; this project uses `dopri5` with
    `rtol = 1e-5`, `atol = 1e-7`, which is overkill for the loss and
@@ -216,7 +216,7 @@ L(θ)   =   (1 / K) · Σ_k  ‖ŷ(t_k)  −  y_k^obs‖²
 
 `torchdiffeq.odeint` keeps every internal solver state on the autograd
 graph, so `L(θ).backward()` propagates gradients back through *all* steps
-the solver took. To prevent the occasional gradient spike (see §3) the
+the solver took. To prevent the occasional gradient spike (see section 3) the
 gradient is clipped to a maximum norm of `2.0` before each Adam update. A
 cosine-annealed learning-rate schedule (initial `lr = 4·10⁻³` for the
 pendulum, `2·10⁻³` for the more nonlinear Lotka-Volterra) drives the final
@@ -263,7 +263,7 @@ Four figures characterise the fit. All are produced by `python main.py`
 | MSE on clean trajectory · training horizon | **1.4 · 10⁻⁴** |
 | MSE on clean trajectory · extrapolation half | **1.6 · 10⁻²** |
 | Relative extrapolation error `√MSE / max\|y\|` | **5.4 %** |
-| Final-time energy drift `\|ΔE/E\|` | **137 %** (interpretation in §6.4) |
+| Final-time energy drift `\|ΔE/E\|` | **137 %** (interpretation in section 6.4) |
 
 ### 6.1 · Training loss
 
@@ -350,7 +350,7 @@ told that the dynamics are conservative.
 Same curriculum-induced bumps as before. The plateau is higher than for the
 pendulum because the species amplitudes are an order of magnitude larger —
 the absolute MSE scales with `‖y‖²`, not with the dimensionless quality of
-the fit. Compare against `rel_err_extrap` in §8 for a scale-free version.
+the fit. Compare against `rel_err_extrap` in section 9 for a scale-free version.
 
 ### 7.2 · Trajectories
 
@@ -466,11 +466,12 @@ of magnitude.
 
 **Does not rule out.** The HNN is *only* applicable when the system is
 known to be Hamiltonian (and one knows the right canonical coordinates).
-For dissipative systems — like the damped pendulum of Section 6 — a
+For dissipative systems — like the damped pendulum of section 6 — a
 plain HNN would force conservation that does not hold and would
 extrapolate worse, not better. The natural next step there is a
 *dissipation-aware* split flow `dy/dt = J·∇H_θ − γ_θ · ∇K_θ` (Sosanya &
-Greydanus, 2022), which is listed in §10 as future work.
+Greydanus, 2022), which is listed as future work in section 11
+(Optional follow-ups).
 
 ## 9 · How to read the metrics
 
@@ -489,7 +490,7 @@ fields per experiment:
 | `invariant_drift_relative`  | Lotka-Volterra only · `std(H_pred) / |mean(H_true)|` along the orbit |
 
 A healthy run on the defaults — the configuration shipped in `main.py`,
-trained on a CPU laptop — produces the numbers reported in §6 and §7:
+trained on a CPU laptop — produces the numbers reported in sections 6 and 7:
 
 - training MSE within an order of magnitude of the observation-noise
   variance for both systems;
@@ -500,10 +501,10 @@ trained on a CPU laptop — produces the numbers reported in §6 and §7:
 
 The unconstrained MLP `f_θ` *can* match a finite training trajectory but
 extrapolation accuracy is bounded by what the network can infer about
-those structural properties from the training data alone. The optional
-follow-ups in §10 (Hamiltonian Neural Networks, dissipation-aware
-extensions) close that gap by *encoding* the invariants instead of
-letting the network rediscover them.
+those structural properties from the training data alone. The ablation
+in section 8 closes that gap for Lotka-Volterra by *encoding* the
+invariant directly into the architecture; the analogous fix for the
+damped pendulum is the dissipation-aware extension listed in section 11.
 
 ## 10 · Reproducing the experiment
 
@@ -548,11 +549,15 @@ of a backward-pass ODE solve. For these 2D systems with ≤ 280 samples it is
 not necessary, but it becomes essential for high-dimensional state spaces or
 very long horizons.
 
-**Encode the Hamiltonian explicitly.** Replace `f_θ` with a *Hamiltonian
-Neural Network* (Greydanus et al., 2019): the network outputs a scalar
-`H_θ(y)` and the dynamics are computed as the symplectic gradient
-`(∂H/∂z, −∂H/∂x)`. By construction the orbit cannot drift in `H`. A natural
-ablation against the unconstrained MLP used here.
+**Dissipation-aware HNN for the damped pendulum.** The Lotka-Volterra
+ablation in section 8 already encodes a pure Hamiltonian prior; for a
+*dissipative* system like the damped pendulum the right extension is a
+split flow `dy/dt = J·∇H_θ(y) − γ_θ(y) · ∇K_θ(y)` (Sosanya & Greydanus,
+2022), where `H_θ` carries the conservative part and the second term
+parametrises a learnable dissipation. The MLP baseline already shows
+where this matters: section 6 reports that the predicted energy stops
+decaying past the training window, which is precisely what a pure HNN
+cannot fix and a dissipation-aware HNN is designed to.
 
 **Stiffer systems.** Try a Van der Pol oscillator with a large non-linearity
 parameter, or a slow-fast system. The default `dopri5` with the current
@@ -607,8 +612,8 @@ expressive than discretised RNNs.
   Networks*. NeurIPS. arXiv:1906.01563.
 - Sosanya, A. & Greydanus, S. (2022). *Dissipative Hamiltonian Neural
   Networks: Learning Dissipative and Conservative Dynamics Separately*.
-  arXiv:2201.10085.  (the dissipation-aware split flow referenced in §8 as
-  the natural extension to the damped pendulum)
+  arXiv:2201.10085.  (the dissipation-aware split flow referenced in
+  sections 8 and 11 as the natural extension to the damped pendulum)
 - Dormand, J. R. & Prince, P. J. (1980). *A family of embedded Runge-Kutta
   formulae*. Journal of Computational and Applied Mathematics 6, 19–26.
 - Hairer, E., Nørsett, S. P. & Wanner, G. (1993). *Solving Ordinary
