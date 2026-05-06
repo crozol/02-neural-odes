@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Neural ODEs for dynamical systems"
+abstract: "Implementation of Neural Ordinary Differential Equations (Chen et al., 2018) for learning continuous-time dynamics from observed trajectories. Two textbook 2D systems, a damped pendulum and a Lotka-Volterra predator-prey model, are used to test the network's ability to extrapolate beyond the training window. A Hamiltonian Neural Network ablation contrasts unconstrained learning against a physics-informed prior."
+authors:
+  - given-names: "Camilo Andrés"
+    family-names: "Rozo Lozano"
+    affiliation: "Universidad Nacional de Colombia"
+    email: rozol.ca555@gmail.com
+repository-code: "https://github.com/crozol/02-neural-odes"
+license: MIT
+version: "1.0.0"
+date-released: 2026-05-05
+keywords:
+  - Neural ODE
+  - Hamiltonian Neural Network
+  - dynamical systems
+  - physics-informed machine learning
+  - PyTorch
+  - torchdiffeq
