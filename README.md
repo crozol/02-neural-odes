@@ -261,7 +261,9 @@ Four figures characterise the fit. All are produced by `python main.py`
 (or `python main.py --system pendulum`) and saved to `figures/`. The
 headline numbers below and in section 7 are **aggregated over `n = 5`
 seeds** by `python -m scripts.run_seeds`; the per-seed dump and the
-aggregated mean/std/min/max live in `data/seed_sweep_metrics.json`.
+aggregated mean/std/min/max live in `data/seed_sweep_metrics.json`. The
+trajectory figures throughout sections 6 and 7 show one representative
+seed (`seed = 0`).
 
 ### Headline numbers
 
