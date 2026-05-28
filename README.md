@@ -1,5 +1,9 @@
 # Neural ODEs for dynamical systems
 
+[![CI](https://img.shields.io/github/actions/workflow/status/crozol/02-neural-odes/tests.yml?label=CI&style=flat-square)](https://github.com/crozol/02-neural-odes/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
+
 A numerical experiment: take two textbook ODE systems whose ground-truth
 vector field is known exactly, observe a short noisy trajectory of each, and
 fit a small neural network that approximates the right-hand side
