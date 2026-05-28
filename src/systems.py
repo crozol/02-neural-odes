@@ -1,6 +1,6 @@
 """Reference dynamical systems used as ground truth for the Neural ODE.
 
-Two systems are exposed, both 2D so they admit a clean phase-plane view:
+Three systems are exposed, all 2D so they admit a clean phase-plane view:
 
 * ``damped_pendulum`` — second-order ODE rewritten as a 2D first-order system
   ``(theta, theta_dot)``. Energy decays monotonically because of the friction
@@ -9,6 +9,11 @@ Two systems are exposed, both 2D so they admit a clean phase-plane view:
 * ``lotka_volterra`` — predator-prey system with closed orbits in phase space.
   A textbook example of a conservative-like flow that a memoryless MLP cannot
   reproduce, but a Neural ODE can.
+* ``simple_harmonic`` — undamped harmonic oscillator. The state ``(q, p)`` is
+  already canonical, so this is the cleanest possible benchmark for a
+  Hamiltonian Neural Network: residual drift of ``H = ½(p² + ω²q²)`` becomes a
+  direct measure of the non-symplectic solver's truncation floor at the
+  chosen tolerances rather than of architectural failure.
 
 Trajectories are integrated with ``scipy.integrate.odeint`` (LSODA) at a fixed
 time grid and Gaussian observation noise can be added to imitate measurement
@@ -41,6 +46,11 @@ class LotkaParams:
     d: float = 0.1           # predator efficiency
 
 
+@dataclass(frozen=True)
+class SHOParams:
+    omega: float = 1.0       # angular frequency (unit mass assumed)
+
+
 def damped_pendulum(y: np.ndarray, t: float,
                     params: PendulumParams = PendulumParams()) -> np.ndarray:
     """Right-hand side of theta_ddot + gamma*theta_dot + omega0^2 sin theta = 0."""
@@ -59,6 +69,17 @@ def lotka_volterra(y: np.ndarray, t: float,
         params.a * x - params.b * x * z,
         params.d * x * z - params.c * z,
     ])
+
+
+def simple_harmonic(y: np.ndarray, t: float,
+                    params: SHOParams = SHOParams()) -> np.ndarray:
+    """Right-hand side of the undamped simple harmonic oscillator.
+
+    Hamilton's equations for ``H(q, p) = ½(p² + ω²q²)`` with unit mass:
+    ``dq/dt = ∂H/∂p = p`` and ``dp/dt = -∂H/∂q = -ω² q``.
+    """
+    q, p = y
+    return np.array([p, -(params.omega ** 2) * q])
 
 
 # --------------------------------------------------------------------------- #
@@ -104,3 +125,12 @@ def lotka_invariant(y: np.ndarray, params: LotkaParams = LotkaParams()) -> np.nd
     """
     x, z = y[..., 0], y[..., 1]
     return params.d * x - params.c * np.log(x) + params.b * z - params.a * np.log(z)
+
+
+def sho_energy(y: np.ndarray, params: SHOParams = SHOParams()) -> np.ndarray:
+    """Total energy of the simple harmonic oscillator.
+
+    ``H(q, p) = ½(p² + ω² q²)`` is exactly conserved along the true flow.
+    """
+    q, p = y[..., 0], y[..., 1]
+    return 0.5 * (p ** 2 + (params.omega ** 2) * q ** 2)
