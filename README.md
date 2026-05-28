@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
 
-**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window are 6% (pendulum) and 1.6% (Lotka-Volterra) for the unconstrained baseline; a Hamiltonian Neural Network ablation on Lotka-Volterra cuts that to **0.71%** and reduces invariant-`H` drift from 7.9% → **2.4%**. Stack: PyTorch · torchdiffeq · NumPy.
+**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; a Hamiltonian Neural Network ablation on Lotka-Volterra reduces invariant-`H` drift from **9.0 ± 3.3 %** to **2.4 %**. Stack: PyTorch · torchdiffeq · NumPy.
 
 A numerical experiment: take two textbook ODE systems whose ground-truth
 vector field is known exactly, observe a short noisy trajectory of each, and
@@ -258,18 +258,21 @@ plateau — the signature of the curriculum doing its job.
 ## 6 · Results · damped pendulum
 
 Four figures characterise the fit. All are produced by `python main.py`
-(or `python main.py --system pendulum`) and saved to `figures/`.
+(or `python main.py --system pendulum`) and saved to `figures/`. The
+headline numbers below and in section 7 are **aggregated over `n = 5`
+seeds** by `python -m scripts.run_seeds`; the per-seed dump and the
+aggregated mean/std/min/max live in `data/seed_sweep_metrics.json`.
 
 ### Headline numbers
 
-| Quantity | Value |
+| Quantity | Value (mean ± std, n = 5 seeds) |
 |---|---|
 | Trainable parameters in `f_θ` | **19 106** |
-| Final training MSE | **1.5 · 10⁻⁴** (~6× the noise floor `(0.005)² = 2.5 · 10⁻⁵`) |
-| MSE on clean trajectory · training horizon | **1.4 · 10⁻⁴** |
-| MSE on clean trajectory · extrapolation half | **1.6 · 10⁻²** |
-| Relative extrapolation error `√MSE / max\|y\|` | **5.4 %** |
-| Final-time energy drift `\|ΔE/E\|` | **137 %** (interpretation in section 6.4) |
+| Final training MSE | **3.0 · 10⁻⁴ ± 2.9 · 10⁻⁴** (~10× the noise floor `(0.005)² = 2.5 · 10⁻⁵`) |
+| MSE on clean trajectory · training horizon | **3.0 · 10⁻⁴ ± 2.8 · 10⁻⁴** |
+| MSE on clean trajectory · extrapolation half | **3.9 · 10⁻² ± 2.1 · 10⁻²** |
+| Relative extrapolation error `√MSE / max\|y\|` | **8.25 % ± 2.41 %** |
+| Final-time energy drift `\|ΔE/E\|` | **106 % ± 41 %** (interpretation in section 6.4) |
 
 ### 6.1 · Training loss
 
@@ -323,11 +326,12 @@ instead of continuing to decay — a signature of the network not having
 fully internalised the friction coefficient `γ` from the finite training
 trajectory.
 
-The reported `|ΔE/E| ≈ 137 %` is the snapshot ratio at the very last
-timestep (`t = 20 s`, where `E_true ≈ 0.2`, `E_pred ≈ 0.5`); it is
-sensitive to a single point. The figure as a whole communicates the more
-honest summary: the *envelope* is captured, the *late-time decay rate* is
-not. Section 10 lists the architectural fixes (Hamiltonian or
+The reported `|ΔE/E| ≈ 106 % ± 41 %` (mean ± std over 5 seeds) is the
+snapshot ratio at the very last timestep (`t = 20 s`, where `E_true ≈
+0.2`); it is sensitive to a single point and the wide spread reflects
+that — individual seeds range from ≈ 37 % to ≈ 137 %. The figure as a
+whole communicates the more honest summary: the *envelope* is captured,
+the *late-time decay rate* is not. Section 10 lists the architectural fixes (Hamiltonian or
 dissipation-aware networks) that close that gap by encoding the relevant
 invariants instead of letting the MLP rediscover them.
 
@@ -340,13 +344,13 @@ told that the dynamics are conservative.
 
 ### Headline numbers
 
-| Quantity | Value |
+| Quantity | Value (mean ± std, n = 5 seeds) |
 |---|---|
 | Trainable parameters in `f_θ` | **19 106** |
-| Final training MSE | **6.1 · 10⁻³** (amplitudes are an order of magnitude larger than for the pendulum) |
-| MSE on clean trajectory · training horizon | **5.6 · 10⁻³** |
-| MSE on clean trajectory · extrapolation half | **4.7 · 10⁻²** |
-| Relative extrapolation error `√MSE / max\|y\|` | **1.6 %** |
+| Final training MSE | **5.9 · 10⁻³ ± 1.6 · 10⁻³** (amplitudes are an order of magnitude larger than for the pendulum) |
+| MSE on clean trajectory · training horizon | **6.3 · 10⁻³ ± 2.3 · 10⁻³** |
+| MSE on clean trajectory · extrapolation half | **2.2 · 10⁻² ± 2.2 · 10⁻²** |
+| Relative extrapolation error `√MSE / max\|y\|` | **0.96 % ± 0.57 %** |
 | Drift in conserved quantity `H` along orbit | **7.9 %** |
 
 ### 7.1 · Training loss
@@ -426,15 +430,21 @@ the ablation:
 
 ### Headline numbers
 
-| Quantity | unconstrained MLP | Hamiltonian NN | Reduction |
+| Quantity | unconstrained MLP (mean ± std, n = 5) | Hamiltonian NN (single run) | Effect |
 |---|---|---|---|
 | Trainable parameters | 19 106 | 19 009 | — |
-| Final training MSE | 6.1 · 10⁻³ *(in `(x, z)`)* | 5.7 · 10⁻⁴ *(in `(q, p)`)* | not directly comparable — different objectives |
-| Relative extrapolation error `√MSE / max\|y\|` | 1.6 % | **0.71 %** | ÷ 2.2 |
-| Drift in `H` along orbit `std(H)/⟨H⟩` | **7.9 %** | **2.4 %** | ÷ 3.3 |
+| Final training MSE | 5.9 · 10⁻³ ± 1.6 · 10⁻³ *(in `(x, z)`)* | 5.7 · 10⁻⁴ *(in `(q, p)`)* | not directly comparable — different objectives |
+| Relative extrapolation error `√MSE / max\|y\|` | 0.96 % ± 0.57 % | **0.71 %** | inside the MLP error bar — no statistically clear improvement on this axis |
+| Drift in `H` along orbit `std(H)/⟨H⟩` | **8.99 % ± 3.30 %** | **2.4 %** | ÷ 3.7 ·  outside MLP mean − 2σ |
 
-The exact HNN numbers come from `data/metrics.json` — the table
-auto-updates each time `scripts/train_hnn_lotka.py` is re-run.
+The HNN was trained once with its canonical seed; the MLP numbers are
+the 5-seed aggregate from `data/seed_sweep_metrics.json`. The two
+columns are therefore asymmetric in their uncertainty — that asymmetry
+is also the conservative reading: the rel-err axis no longer supports
+a confident "HNN is better than baseline" claim on Lotka-Volterra at
+this training budget, but the structural invariant `H` is preserved
+markedly better by the HNN, by a factor that sits clearly outside the
+MLP's seed-induced spread.
 
 ### What the comparison shows
 
@@ -574,6 +584,10 @@ python -m scripts.train_hnn_lotka
 
 # HNN sanity check on the simple harmonic oscillator
 python -m scripts.train_hnn_sho
+
+# 5-seed sweep of the MLP baseline (used for the headline numbers in
+# sections 6 and 7). Takes ~2 h on a laptop CPU.
+python -m scripts.run_seeds --n-seeds 5
 ```
 
 After the run the directories contain:
@@ -643,6 +657,7 @@ expressive than discretised RNNs.
 │   └── plots.py                  # publication-style dark figures
 ├── scripts/
 │   ├── export_json.py            # NPZ + metrics → minified JSON for the website
+│   ├── run_seeds.py              # 5-seed MLP baseline sweep for the headline tables
 │   ├── train_hnn_lotka.py        # HNN ablation on Lotka-Volterra
 │   └── train_hnn_sho.py          # HNN sanity check on the simple harmonic oscillator
 ├── figures/                      # tracked PNGs embedded in this README
@@ -659,6 +674,7 @@ expressive than discretised RNNs.
 │   └── sho_invariant.png         # H along time for the SHO sanity check
 └── data/                         # (gitignored) NPZ + JSON metrics summary
     ├── metrics.json
+    ├── seed_sweep_metrics.json   # 5-seed aggregate referenced by sections 6 and 7
     ├── pendulum_arrays.npz
     ├── lotka_arrays.npz
     ├── lotka_hnn_arrays.npz
