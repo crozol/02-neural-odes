@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
 
+**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window are 6% (pendulum) and 1.6% (Lotka-Volterra) for the unconstrained baseline; a Hamiltonian Neural Network ablation on Lotka-Volterra cuts that to **0.71%** and reduces invariant-`H` drift from 7.9% → **2.4%**. Stack: PyTorch · torchdiffeq · NumPy.
+
 A numerical experiment: take two textbook ODE systems whose ground-truth
 vector field is known exactly, observe a short noisy trajectory of each, and
 fit a small neural network that approximates the right-hand side
