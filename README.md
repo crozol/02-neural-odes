@@ -3,6 +3,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/crozol/02-neural-odes/tests.yml?label=CI&style=flat-square)](https://github.com/crozol/02-neural-odes/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
+[![Live demo](https://img.shields.io/badge/Live%20demo-Hugging%20Face-FF9D00?style=flat-square)](https://huggingface.co/spaces/crozol/neural-odes-hnn-demo)
 
 **TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; a Hamiltonian Neural Network ablation on Lotka-Volterra reduces invariant-`H` drift from **9.0 ± 3.3 %** to **2.4 %**. Stack: PyTorch · torchdiffeq · NumPy.
 
