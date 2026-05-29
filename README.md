@@ -35,7 +35,8 @@ conserved orbit in Lotka-Volterra.
    - [5.1 · Generating noisy trajectories](#51--generating-noisy-trajectories)
    - [5.2 · The parametrised vector field](#52--the-parametrised-vector-field)
    - [5.3 · Loss and gradients through the solver](#53--loss-and-gradients-through-the-solver)
-   - [5.4 · A curriculum on the integration window](#54--a-curriculum-on-the-integration-window)
+   - [5.4 · The adjoint method](#54--the-adjoint-method)
+   - [5.5 · A curriculum on the integration window](#55--a-curriculum-on-the-integration-window)
 6. [Results · damped pendulum](#6--results--damped-pendulum)
 7. [Results · Lotka-Volterra](#7--results--lotka-volterra)
 8. [Ablation: physics-informed prior (Hamiltonian NN)](#8--ablation-physics-informed-prior-hamiltonian-nn)
@@ -95,7 +96,8 @@ y(T)    =   y_0  +  ∫₀ᵀ f_θ(y(s), s) ds        (numerical solver)
 grid `t = (t_1, …, t_K)`, the model produces `(y(t_1), …, y(t_K))` by calling
 an adaptive ODE solver inside the forward pass. Gradients of any loss
 defined on those outputs flow back through the solver (either by direct
-backprop through every internal step or by the *adjoint* method).
+backprop through every internal step or by the *adjoint* method, detailed in
+Section 5.4).
 
 A few useful framings:
 
@@ -115,7 +117,7 @@ Two warnings about how training feels in practice:
 1. **The loss surface is rougher than for a feedforward net.** Long
    integrations amplify gradients of the early-time portion, so the loss can
    spike when the network briefly explores a region with stiffer dynamics.
-   The curriculum in section 5.4 directly addresses this.
+   The curriculum in section 5.5 directly addresses this.
 2. **Numerical method matters.** A Tanh MLP is smooth, but the solver still
    needs reasonable tolerances; this project uses `dopri5` with
    `rtol = 1e-5`, `atol = 1e-7`, which is overkill for the loss and
@@ -229,7 +231,50 @@ cosine-annealed learning-rate schedule (initial `lr = 4·10⁻³` for the
 pendulum, `2·10⁻³` for the more nonlinear Lotka-Volterra) drives the final
 loss down without manual tuning.
 
-### 5.4 · A curriculum on the integration window
+### 5.4 · The adjoint method
+
+Section 5.3 gets gradients by letting `torchdiffeq.odeint` keep every internal
+solver state on the autograd graph and calling `.backward()`. That is exact and
+simple, but its memory cost grows linearly with the number of solver steps: a
+long or stiff integration must store the entire forward trajectory before the
+backward pass can run.
+
+The **adjoint sensitivity method** (Pontryagin, 1962; Chen et al., 2018) removes
+that cost. Define the adjoint state as the gradient of the loss with respect to
+the trajectory,
+
+```
+a(t) = ∂L / ∂y(t)
+```
+
+It obeys its own ODE, integrated *backwards* in time:
+
+```
+da/dt = − a(t)ᵀ ∂f_θ(y(t), t) / ∂y
+```
+
+and the parameter gradient falls out as a single integral along that same
+backward solve:
+
+```
+dL/dθ = − ∫_T^0 a(t)ᵀ ∂f_θ(y(t), t) / ∂θ  dt
+```
+
+So instead of storing the forward trajectory, one re-integrates `y(t)` backwards
+together with `a(t)` and the accumulating gradient — coupled ODEs solved in a
+single backward pass. Memory becomes **O(1)** in the integration length; the
+price is a second ODE solve plus some error from reconstructing `y(t)` backwards
+(mitigated by checkpointing a few forward states).
+
+`torchdiffeq` exposes this as a drop-in `odeint_adjoint`. **This project
+deliberately uses plain `odeint`:** the two systems are 2D with ≤ 360 samples, so
+the forward graph is tiny and exact backprop is both faster and free of the
+adjoint's reconstruction error. The adjoint earns its place when the state is
+high-dimensional (a latent ODE over images) or the horizon is long enough that
+storing every step is the binding constraint — the regime Neural ODEs were
+introduced for.
+
+### 5.5 · A curriculum on the integration window
 
 Trying to fit the entire 360-sample trajectory from epoch zero rarely works.
 The optimiser sees a giant integral with a huge gradient — the early portion
@@ -618,11 +663,10 @@ training epochs by hand, and inspect the learned vector field on the fly.
 
 ## 11 · Optional follow-ups
 
-**Use the adjoint solver.** `torchdiffeq` ships an `odeint_adjoint`
-function. Memory cost becomes `O(1)` in the integration length at the price
-of a backward-pass ODE solve. For these 2D systems with ≤ 280 samples it is
-not necessary, but it becomes essential for high-dimensional state spaces or
-very long horizons.
+**Use the adjoint solver.** Swap `odeint` for `torchdiffeq`'s `odeint_adjoint`
+to trade the forward-graph memory for a backward-pass ODE solve — see Section 5.4
+for the derivation, why this project keeps the plain solver, and when the adjoint
+is worth it.
 
 **Dissipation-aware HNN for the damped pendulum.** The Lotka-Volterra
 ablation in section 8 already encodes a pure Hamiltonian prior; for a
@@ -688,6 +732,9 @@ expressive than discretised RNNs.
 
 - Chen, R. T. Q., Rubanova, Y., Bettencourt, J. & Duvenaud, D. (2018).
   *Neural Ordinary Differential Equations*. NeurIPS. arXiv:1806.07366.
+- Pontryagin, L. S., Boltyanskii, V. G., Gamkrelidze, R. V. & Mishchenko, E. F.
+  (1962). *The Mathematical Theory of Optimal Processes*. Wiley.  (origin of the
+  adjoint sensitivity method)
 - Greydanus, S., Dzamba, M. & Yosinski, J. (2019). *Hamiltonian Neural
   Networks*. NeurIPS. arXiv:1906.01563.
 - Sosanya, A. & Greydanus, S. (2022). *Dissipative Hamiltonian Neural
