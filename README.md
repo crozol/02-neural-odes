@@ -483,7 +483,7 @@ the ablation:
 | Trainable parameters | 19 106 | 19 009 | — |
 | Final training MSE | 5.9 · 10⁻³ ± 1.6 · 10⁻³ *(in `(x, z)`)* | 5.7 · 10⁻⁴ *(in `(q, p)`)* | not directly comparable — different objectives |
 | Relative extrapolation error `√MSE / max\|y\|` | 0.96 % ± 0.57 % | **0.71 %** | inside the MLP error bar — no statistically clear improvement on this axis |
-| Drift in `H` along orbit `std(H)/⟨H⟩` | **8.99 % ± 3.30 %** | **2.4 %** | ÷ 3.7 ·  outside MLP mean − 2σ |
+| Drift in `H` along orbit `std(H)/⟨H⟩` | **8.99 % ± 3.30 %** | **2.4 %** | ÷ 3.7 · below all 5 MLP seeds (min 6.0 %) |
 
 The HNN was trained once with its canonical seed; the MLP numbers are
 the 5-seed aggregate from `data/seed_sweep_metrics.json`. The two
@@ -522,11 +522,12 @@ this ablation.
 
 ### What this rules out, and what it doesn't
 
-**Rules out.** The 7.9 % `H`-drift of the MLP is not a fundamental limit
-of Neural ODEs on this problem — it is a consequence of the
-unconstrained architecture. The same training data, schedule and
-parameter budget under a Hamiltonian prior shrinks the drift by an order
-of magnitude.
+**Rules out.** The 9.0 ± 3.3 % `H`-drift of the MLP (5 seeds) is not a
+fundamental limit of Neural ODEs on this problem — it is a consequence
+of the unconstrained architecture. The same training data, schedule and
+parameter budget under a Hamiltonian prior shrinks the drift to 2.4 % —
+a factor of ~3.7, below every one of the five MLP seeds (min 6.0 %),
+though based on a single HNN run.
 
 **Does not rule out.** The HNN is *only* applicable when the system is
 known to be Hamiltonian (and one knows the right canonical coordinates).
@@ -741,6 +742,10 @@ expressive than discretised RNNs.
   Networks: Learning Dissipative and Conservative Dynamics Separately*.
   arXiv:2201.10085.  (the dissipation-aware split flow referenced in
   sections 8 and 11 as the natural extension to the damped pendulum)
+- Zhong, Y. D., Dey, B. & Chakraborty, A. (2020). *Dissipative SymODEN:
+  Encoding Hamiltonian Dynamics with Dissipation and Control into Deep
+  Learning*. ICLR 2020 Workshop DeepDiffEq. arXiv:2002.08860.  (Hamiltonian
+  plus dissipation, the other standard prior for the damped pendulum)
 - Dormand, J. R. & Prince, P. J. (1980). *A family of embedded Runge-Kutta
   formulae*. Journal of Computational and Applied Mathematics 6, 19–26.
 - Hairer, E., Nørsett, S. P. & Wanner, G. (1993). *Solving Ordinary
