@@ -54,3 +54,17 @@ def test_lotka_invariant_conserved():
     H = lotka_invariant(traj)
     rel_drift = (H.max() - H.min()) / abs(H.mean())
     assert rel_drift < 1e-3, f"relative drift = {rel_drift:.2e}"
+
+
+def test_ablation_fixed_point_and_coordinates():
+    """The fixed point used to normalise the H drift is the minimum of H,
+    and the log-coordinate round trip is exact for positive states."""
+    from scripts.ablation_ic import H_MIN, X_EQ, _from_model, _to_model
+    from src.systems import lotka_invariant
+
+    assert np.allclose(X_EQ, [4.0, 2.75])
+    for y in ([3.0, 2.0], [5.0, 3.5], [10.0, 5.0]):
+        assert lotka_invariant(np.array(y)) > H_MIN
+    y = np.array([[10.0, 5.0], [6.0, 4.0]])
+    assert np.allclose(_from_model(_to_model(y, "hnn"), "hnn"), y)
+    assert np.allclose(_to_model(y, "mlp"), y)

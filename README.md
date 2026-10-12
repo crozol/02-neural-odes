@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/neural-odes-hnn-demo)
 
-**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; a Hamiltonian Neural Network ablation on Lotka-Volterra reduces invariant-`H` drift from **9.0 ± 3.3 %** to **2.4 %**. Stack: PyTorch · torchdiffeq · NumPy.
+**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; for Lotka-Volterra, a Hamiltonian Neural Network helps once the training data cover more than one orbit: trained on three trajectories and scored on five unseen ones, it reaches **2.4 % ± 0.4 %** relative error and **2.2 %** drift in the conserved `H`, against **5.0 %** and **8.6 %** for the same MLP in the same log-coordinates (5 seeds). Trained on a single trajectory, no model generalises to new orbits (17–18 %), and the HNN's lower `H` drift on that orbit comes mostly from the change to log-coordinates. Stack: PyTorch · torchdiffeq · NumPy.
 
 A numerical experiment: take two textbook ODE systems whose ground-truth
 vector field is known exactly, observe a short noisy trajectory of each, and
@@ -39,7 +39,7 @@ conserved orbit in Lotka-Volterra.
    - [5.5 · A curriculum on the integration window](#55--a-curriculum-on-the-integration-window)
 6. [Results · damped pendulum](#6--results--damped-pendulum)
 7. [Results · Lotka-Volterra](#7--results--lotka-volterra)
-8. [Ablation: physics-informed prior (Hamiltonian NN)](#8--ablation-physics-informed-prior-hamiltonian-nn)
+8. [Ablation: Hamiltonian prior — what it buys, and when](#8--ablation-hamiltonian-prior--what-it-buys-and-when)
 9. [How to read the metrics](#9--how-to-read-the-metrics)
 10. [Reproducing the experiment](#10--reproducing-the-experiment)
 11. [Optional follow-ups](#11--optional-follow-ups)
@@ -399,7 +399,7 @@ told that the dynamics are conservative.
 | MSE on clean trajectory · training horizon | **6.3 · 10⁻³ ± 2.3 · 10⁻³** |
 | MSE on clean trajectory · extrapolation half | **2.2 · 10⁻² ± 2.2 · 10⁻²** |
 | Relative extrapolation error `√MSE / max\|y\|` | **0.96 % ± 0.57 %** |
-| Drift in conserved quantity `H` along orbit | **7.9 %** |
+| Drift in conserved quantity `H` along orbit `std(H)/⟨H⟩` | **8.99 % ± 3.30 %** |
 
 ### 7.1 · Training loss
 
@@ -430,18 +430,20 @@ ratio mismatch between the four `(a, b, c, d)` parameters of the true
 system would manifest as a slow inward or outward drift across cycles.
 The Neural ODE's orbit traces the ground-truth loop almost exactly within
 the training horizon and remains close on the extrapolation half — the
-`7.9 %` standard deviation of the conserved quantity `H` along the
-predicted trajectory quantifies that residual.
+standard deviation of the conserved quantity `H` along the predicted
+trajectory (7.9 % for the seed shown, 9.0 % ± 3.3 % over five seeds)
+quantifies that residual.
 
-## 8 · Ablation: physics-informed prior (Hamiltonian NN)
+## 8 · Ablation: Hamiltonian prior — what it buys, and when
 
-The unconstrained MLP recovers `H` to within `≈ 8 %`, but it does so by
-absorbing structure into 19 106 free parameters. A natural question is
-whether *encoding* the Hamiltonian structure into the architecture itself
-shrinks that drift — and by how much.
+The unconstrained MLP keeps the Lotka-Volterra orbit closed only to within
+a drift of `≈ 9 %` in the conserved quantity `H`. A natural question is
+whether *encoding* the Hamiltonian structure into the architecture shrinks
+that drift, and whether it helps the model generalise beyond the one orbit it
+was trained on.
 
 Lotka-Volterra is canonically Hamiltonian in log-coordinates
-`(q, p) = (ln x, ln z)` with
+`(q, p) = (ln x, ln z)` (Nutku, 1990) with
 
 ```
 H(q, p) = b·e^p + d·e^q − a·p − c·q
@@ -451,108 +453,138 @@ A **Hamiltonian Neural Network** (Greydanus et al., 2019) parametrises a
 scalar `H_θ(q, p)` and computes the dynamics as the *symplectic* gradient
 
 ```
-dq/dt   =   +∂H/∂p
-dp/dt   =   −∂H/∂q
+dq/dt   =   +∂H_θ/∂p
+dp/dt   =   −∂H_θ/∂q
 ```
 
-via autograd. By construction every trajectory produced by integrating
-this field preserves `H_θ` along time, and the network never has to spend
-parameters reproducing that conservation property — it gets it for free.
+via autograd. Every trajectory of this field conserves `H_θ` exactly; what
+the solver adds is only its truncation error. Whether the *true* `H` is
+conserved depends on how close `H_θ` is to `H`, which is a property of the
+fit, not of the architecture.
 
-### Setup
+`src/hnn.py` ships the architecture: 3 hidden layers of width 96 with `Tanh`
+and a scalar output, **19 009 trainable parameters** against the MLP's
+19 106.
 
-`src/hnn.py` ships the architecture; `scripts/train_hnn_lotka.py` runs
-the ablation:
+### 8.1 · First comparison: one orbit, one HNN run
 
-- Same width and depth (3 hidden layers · width 96 · `Tanh`) as the
-  baseline MLP, with output dimension 1 — the scalar `H_θ`. **19 009
-  trainable parameters**, which is essentially the same budget as the
-  baseline (19 106).
-- Same training schedule: 2 000 epochs, Adam with cosine-annealed `lr`
-  starting at `2·10⁻³`, gradient clipped at `2.0`, curriculum window
-  growing every 80 epochs from 30 samples up to the full 300.
-- The training loss is MSE on the noisy *log-coordinate* observations
-  `(ln x, ln z)`. At evaluation time the predicted log-trajectory is
-  exponentiated back to `(x, z)` for an honest comparison against the
-  same ground truth used by the MLP.
+`scripts/train_hnn_lotka.py` trains the HNN on exactly the data and schedule
+of the MLP in Section 7 (one noisy trajectory from `(10, 5)`, 2 000 epochs,
+loss in log-coordinates) and scores it on the forward extrapolation of the
+same orbit:
 
-### Headline numbers
-
-| Quantity | unconstrained MLP (mean ± std, n = 5) | Hamiltonian NN (single run) | Effect |
-|---|---|---|---|
-| Trainable parameters | 19 106 | 19 009 | — |
-| Final training MSE | 5.9 · 10⁻³ ± 1.6 · 10⁻³ *(in `(x, z)`)* | 5.7 · 10⁻⁴ *(in `(q, p)`)* | not directly comparable — different objectives |
-| Relative extrapolation error `√MSE / max\|y\|` | 0.96 % ± 0.57 % | **0.71 %** | inside the MLP error bar — no statistically clear improvement on this axis |
-| Drift in `H` along orbit `std(H)/⟨H⟩` | **8.99 % ± 3.30 %** | **2.4 %** | ÷ 3.7 · below all 5 MLP seeds (min 6.0 %) |
-
-The HNN was trained once with its canonical seed; the MLP numbers are
-the 5-seed aggregate from `data/seed_sweep_metrics.json`. The two
-columns are therefore asymmetric in their uncertainty — that asymmetry
-is also the conservative reading: the rel-err axis no longer supports
-a confident "HNN is better than baseline" claim on Lotka-Volterra at
-this training budget, but the structural invariant `H` is preserved
-markedly better by the HNN, by a factor that sits clearly outside the
-MLP's seed-induced spread.
-
-### What the comparison shows
-
-![HNN training loss](figures/hnn_loss.png)
-
-Loss curve for the HNN run, on the same axes as the baseline. The HNN
-optimiser sees a slightly different objective (MSE in log coordinates
-rather than absolute amplitudes) so the absolute level is not directly
-comparable, but the curriculum bumps and the cosine LR decay are visible
-in the same shape.
+| Quantity | unconstrained MLP (n = 5) | HNN (single run) |
+|---|---|---|
+| Relative extrapolation error `√MSE / max\|y\|` | 0.96 % ± 0.57 % | 0.71 % |
+| Drift in `H` along the orbit `std(H)/⟨H⟩` | 8.99 % ± 3.30 % | 2.4 % |
 
 ![Phase plane · MLP vs HNN](figures/hnn_phase.png)
 
-Triple orbit overlaid on the *MLP-learned* vector field — keeping the
-speed colormap identical to Section 7 makes the visible difference purely
-in the shape of the orbit. The HNN orbit closes on itself almost
-exactly, while the MLP orbit accumulates a small drift across cycles.
-
 ![Invariant drift · MLP vs HNN](figures/hnn_invariant.png)
 
-The conserved quantity `H` evaluated on the *predicted* trajectory.
-The ground truth is flat (cyan); the MLP wobbles around it
-(`std/⟨H⟩ ≈ 7.9 %`); the HNN is almost flat too — the residual is
-dominated by the dopri5 truncation error, not by an architectural
-inability to conserve. The annotated reduction factor is the headline of
-this ablation.
+The HNN orbit closes on itself, and its `H` drift is below all five MLP seeds.
+The residual 2.4 % is **not** solver error: integrating the same trained HNN
+with `rtol = 10⁻⁸` instead of `10⁻⁵` leaves it unchanged (2.44 %), while the
+network's own `H_θ` is conserved to `3 · 10⁻⁵`. It is the difference between
+the learned `H_θ` and the true `H`.
 
-### What this rules out, and what it doesn't
+This comparison has three weaknesses: the HNN was trained once; it changes
+two things at the same time — the architecture *and* the coordinates, since
+the MLP works in `(x, z)` and the HNN in `(ln x, ln z)`; and it only tests the
+orbit the models were trained on, which cannot tell whether a model has
+learned the vector field or one closed curve.
 
-**Rules out.** The 9.0 ± 3.3 % `H`-drift of the MLP (5 seeds) is not a
-fundamental limit of Neural ODEs on this problem — it is a consequence
-of the unconstrained architecture. The same training data, schedule and
-parameter budget under a Hamiltonian prior shrinks the drift to 2.4 % —
-a factor of ~3.7, below every one of the five MLP seeds (min 6.0 %),
-though based on a single HNN run.
+### 8.2 · Controlled ablation on unseen orbits
 
-**Does not rule out.** The HNN is *only* applicable when the system is
-known to be Hamiltonian (and one knows the right canonical coordinates).
-For dissipative systems — like the damped pendulum of section 6 — a
-plain HNN would force conservation that does not hold and would
-extrapolate worse, not better. The natural next step there is a
+`scripts/ablation_ic.py` addresses all three. It trains three models with the
+same width, depth, schedule and optimiser —
+
+- **MLP (x, z)**: the baseline, loss in `(x, z)`;
+- **MLP (ln x, ln z)**: the same MLP trained in log-coordinates with the
+  HNN's loss, a control that separates the coordinate change from the
+  Hamiltonian structure;
+- **HNN**, in log-coordinates —
+
+in two regimes: on **one** trajectory, from `(10, 5)` as before, or on
+**three**, from `(10, 5)`, `(6, 4)` and `(12, 6)`. In both, the initial state
+of each training trajectory is a free parameter fitted jointly with the
+network, instead of being fixed to the first noisy observation. Every model
+is then integrated from the exact initial conditions of **five orbits it
+never saw** — two inside the range of `H` spanned by the three training
+orbits, one below it (closer to the fixed point `(4, 2.75)`) and two above it
+— over `t ∈ [0, 22]`. Five seeds per configuration, 30 runs in total.
+
+The `H` drift is now normalised by the height of each orbit above the fixed
+point, `std(H) / (H(y₀) − H_min)`, because several test orbits have `H`
+close to zero and the earlier ratio `std(H)/⟨H⟩` would blow up there.
+
+| Training | Model | Unseen orbits: rel. error | Unseen orbits: `H` drift | Training orbit: rel. error | Training orbit: `H` drift |
+|---|---|---|---|---|---|
+| 1 trajectory | MLP (x, z) | 16.6 % ± 1.9 % | 82.7 % ± 15.7 % | 1.73 % ± 0.39 % | 6.45 % ± 1.51 % |
+| 1 trajectory | MLP (ln x, ln z) | 17.3 % ± 1.2 % | 60.1 % ± 1.6 % | **0.43 % ± 0.14 %** | **2.14 % ± 0.30 %** |
+| 1 trajectory | HNN | 18.5 % ± 2.2 % | **11.7 % ± 0.9 %** | 3.06 % ± 1.12 % | 2.36 % ± 0.29 % |
+| 3 trajectories | MLP (x, z) | 5.35 % ± 0.37 % | 32.5 % ± 1.3 % | 3.72 % ± 0.56 % | 12.8 % ± 1.4 % |
+| 3 trajectories | MLP (ln x, ln z) | 5.03 % ± 0.23 % | 8.60 % ± 0.33 % | 3.37 % ± 0.28 % | 5.51 % ± 0.15 % |
+| 3 trajectories | HNN | **2.38 % ± 0.41 %** | **2.18 % ± 0.32 %** | 0.99 % ± 0.35 % | 1.52 % ± 0.18 % |
+
+Mean ± standard deviation over 5 seeds; the unseen-orbit columns average the
+five test orbits. "Training orbit" is the orbit from `(10, 5)`, integrated over
+`t ∈ [0, 22]`, i.e. the training window plus its extrapolation.
+
+![Ablation on unseen orbits](figures/hnn_ablation_ic.png)
+
+Three results follow.
+
+1. **On the training orbit, the coordinates do most of the work.** With one
+   trajectory, the MLP in log-coordinates conserves `H` as well as the HNN
+   (2.14 % vs 2.36 %) and tracks the orbit more closely (0.43 % vs 3.06 %).
+   The drop in `H` drift of Section 8.1 came mostly from the change to
+   `(ln x, ln z)`, not from the Hamiltonian structure.
+2. **One trajectory does not determine the vector field.** Trained on a
+   single orbit, all three models miss unseen orbits by 17–18 %, the HNN
+   included. The HNN's predicted orbits still close (`H` drift 11.7 % against
+   60–83 %), but they are the wrong orbits: a conserved `H_θ` that is
+   accurate along one curve need not be accurate anywhere else.
+3. **With three trajectories, the prior pays off.** On unseen orbits the
+   HNN's error is less than half that of the log-coordinate MLP
+   (2.38 % ± 0.41 % against 5.03 % ± 0.23 %) and its `H` drift is four times
+   smaller (2.18 % against 8.60 %), with every seed better than every MLP
+   seed on both metrics. Panel (c) shows why: the MLP's orbits spiral slowly
+   inward or outward, while the HNN's stay closed and lie close to the true
+   ones, including the two orbits above the training range.
+
+The learned initial states move away from the first observations by more
+than the observation noise (`σ = 0.03`): up to `0.2` in `(x, z)` for the MLPs
+and `0.05–0.06` in log-coordinates for the HNN. With the initial state free,
+the network and the starting point trade off against each other; scoring
+from the exact initial conditions, as done here, keeps that trade-off out of
+the comparison.
+
+### 8.3 · What this rules out, and what it doesn't
+
+**Rules out.** That the Hamiltonian prior was the main reason for the lower
+`H` drift on the training orbit (Section 8.1): an MLP in the same coordinates
+does as well. And that a model fitted to one trajectory has learned the
+dynamics: none of the three generalises to other orbits.
+
+**Supports.** That once the training data cover more than one orbit, the
+HNN generalises to unseen orbits clearly better than an unconstrained network
+of the same size in the same coordinates — the structural prior constrains
+how `H_θ` extends between and beyond the training orbits.
+
+**Does not rule out.** The HNN is *only* applicable when the system is known
+to be Hamiltonian and its canonical coordinates are known. For dissipative
+systems — like the damped pendulum of Section 6 — a plain HNN would force
+conservation that does not hold. The natural next step there is a
 *dissipation-aware* split flow `dy/dt = J·∇H_θ − γ_θ · ∇K_θ` (Sosanya &
-Greydanus, 2022), which is listed as future work in section 11
-(Optional follow-ups).
+Greydanus, 2022), listed in Section 11.
 
-### Sanity check on the canonical limit · simple harmonic oscillator
+### 8.4 · Sanity check on the canonical limit · simple harmonic oscillator
 
-The Lotka-Volterra ablation is the *non-trivial* case for the HNN:
-the canonical coordinates need a log transform, the Hamiltonian is
-non-quadratic, and even after that there is residual `H` drift
-(2.4 %). To establish that the residual is the property of Lotka,
-not of the architecture, `scripts/train_hnn_sho.py` repeats the
-experiment on the trivial canonical limit — an undamped simple
-harmonic oscillator `H(q, p) = ½(p² + ω²q²)`. The state `(q, p)`
-is already canonical and the Hamiltonian is a quadratic form, so
-the same architecture and training budget should give measurably
-tighter conservation.
-
-After one period of noisy training data the model is integrated for
-four full periods of extrapolation:
+`scripts/train_hnn_sho.py` repeats the single-run experiment on an undamped
+simple harmonic oscillator `H(q, p) = ½(p² + ω²q²)`, where `(q, p)` is
+already canonical and `H` is quadratic. After one period of noisy training
+data the model is integrated for four periods:
 
 | Quantity | Value |
 |---|---|
@@ -565,19 +597,11 @@ four full periods of extrapolation:
 
 ![SHO H along time](figures/sho_invariant.png)
 
-`H` along the predicted orbit against the true value (constant by
-construction) across four oscillator periods. The amber band marks
-the extrapolation half; both curves stay co-located within the line
-width.
-
-The `H` drift on SHO (0.92 %) is below the Lotka HNN drift (2.4 %)
-under identical hyperparameters (`hidden = 96`, `depth = 3`, 1500
-epochs, `dopri5` with `rtol = 1e-7`). The remaining 0.92 % is
-dominated by the truncation floor of the non-symplectic solver
-over the integration horizon; it is not an architectural failure.
-The implication runs back to the Lotka result: the 2.4 % drift
-there is a property of the Lotka Hamiltonian (the log-coordinate
-transform plus a non-quadratic `H`), not of the HNN class.
+The `H` drift here (0.92 %) is below the Lotka-Volterra value (2.4 %) under
+the same architecture. As for Lotka-Volterra, it is fitting error rather than
+solver error: tightening the tolerance from `10⁻⁵` to `10⁻⁸` leaves it at
+0.93 %, while `H_θ` itself is conserved to `2 · 10⁻⁵`. The easier quadratic
+`H` is simply fitted more accurately.
 
 ## 9 · How to read the metrics
 
@@ -596,6 +620,13 @@ fields per experiment:
 | `invariant_drift_relative`  | Lotka-Volterra and SHO · `std(H_pred) / |mean(H_true)|` along the orbit |
 | `invariant_max_abs_error`   | SHO only · max `|H_pred − H_true|` along the full horizon |
 
+The controlled ablation of Section 8.2 (`scripts/ablation_ic.py`) writes one
+JSON per run to `data/ablation_ic/` and the aggregate to
+`data/ablation_ic_summary.json`. Its `rel_err` is `√MSE / max\|y\|` over
+`t ∈ [0, 22]` from the exact initial condition, and its `h_drift` is
+`std(H) / (H(y₀) − H_min)`, the drift relative to the height of the orbit
+above the fixed point.
+
 A healthy run on the defaults — the configuration shipped in `main.py`,
 trained on a CPU laptop — produces the numbers reported in sections 6 and 7:
 
@@ -608,10 +639,12 @@ trained on a CPU laptop — produces the numbers reported in sections 6 and 7:
 
 The unconstrained MLP `f_θ` *can* match a finite training trajectory but
 extrapolation accuracy is bounded by what the network can infer about
-those structural properties from the training data alone. The ablation
-in section 8 closes that gap for Lotka-Volterra by *encoding* the
-invariant directly into the architecture; the analogous fix for the
-damped pendulum is the dissipation-aware extension listed in section 11.
+those structural properties from the training data alone. Section 8 shows
+how far *encoding* the invariant into the architecture goes for
+Lotka-Volterra: little, if the model sees one orbit; a factor of two in
+error and four in `H` drift on unseen orbits, if it sees three. The
+analogous extension for the damped pendulum is the dissipation-aware model
+listed in section 11.
 
 ## 10 · Reproducing the experiment
 
@@ -634,6 +667,12 @@ python -m scripts.train_hnn_lotka
 # HNN sanity check on the simple harmonic oscillator
 python -m scripts.train_hnn_sho
 
+# controlled ablation of Section 8.2: 3 models x 2 regimes x 5 seeds
+# (~10-13 min per run on one CPU core; the 30 runs are independent)
+python -m scripts.ablation_ic --model hnn --regime multi --seed 0 1 2 3 4
+python -m scripts.ablation_ic --summarize
+python -m scripts.ablation_ic --figure
+
 # 5-seed sweep of the MLP baseline (used for the headline numbers in
 # sections 6 and 7). Takes ~2 h on a laptop CPU.
 python -m scripts.run_seeds --n-seeds 5
@@ -653,6 +692,7 @@ figures/
   ├── hnn_loss.png
   ├── hnn_phase.png
   ├── hnn_invariant.png
+  ├── hnn_ablation_ic.png
   └── sho_invariant.png
 data/
   └── metrics.json
@@ -706,7 +746,8 @@ expressive than discretised RNNs.
 ├── scripts/
 │   ├── export_json.py            # NPZ + metrics → minified JSON for the website
 │   ├── run_seeds.py              # 5-seed MLP baseline sweep for the headline tables
-│   ├── train_hnn_lotka.py        # HNN ablation on Lotka-Volterra
+│   ├── train_hnn_lotka.py        # first HNN comparison on Lotka-Volterra (Section 8.1)
+│   ├── ablation_ic.py            # controlled ablation on unseen orbits (Section 8.2)
 │   └── train_hnn_sho.py          # HNN sanity check on the simple harmonic oscillator
 ├── figures/                      # tracked PNGs embedded in this README
 │   ├── pendulum_loss.png
@@ -719,6 +760,7 @@ expressive than discretised RNNs.
 │   ├── hnn_loss.png              # HNN training loss
 │   ├── hnn_phase.png             # phase plane: truth · MLP · HNN
 │   ├── hnn_invariant.png         # H along time for all three
+│   ├── hnn_ablation_ic.png       # Section 8.2: unseen-orbit errors and orbits
 │   └── sho_invariant.png         # H along time for the SHO sanity check
 └── data/                         # (gitignored) NPZ + JSON metrics summary
     ├── metrics.json
@@ -726,6 +768,8 @@ expressive than discretised RNNs.
     ├── pendulum_arrays.npz
     ├── lotka_arrays.npz
     ├── lotka_hnn_arrays.npz
+    ├── ablation_ic/              # one JSON + checkpoint per ablation run
+    ├── ablation_ic_summary.json
     └── sho_hnn_arrays.npz
 ```
 
@@ -738,6 +782,13 @@ expressive than discretised RNNs.
   adjoint sensitivity method)
 - Greydanus, S., Dzamba, M. & Yosinski, J. (2019). *Hamiltonian Neural
   Networks*. NeurIPS. arXiv:1906.01563.
+- Nutku, Y. (1990). *Hamiltonian structure of the Lotka-Volterra
+  equations*. Physics Letters A 145, 27–28.  (the canonical
+  log-coordinates used by the HNN)
+- Zhong, Y. D., Dey, B. & Chakraborty, A. (2020). *Symplectic ODE-Net:
+  Learning Hamiltonian Dynamics with Control*. ICLR. arXiv:1909.12077.
+- Cranmer, M., Greydanus, S., Hoyer, S., Battaglia, P., Spergel, D. &
+  Ho, S. (2020). *Lagrangian Neural Networks*. arXiv:2003.04630.
 - Sosanya, A. & Greydanus, S. (2022). *Dissipative Hamiltonian Neural
   Networks: Learning Dissipative and Conservative Dynamics Separately*.
   arXiv:2201.10085.  (the dissipation-aware split flow referenced in
@@ -748,6 +799,9 @@ expressive than discretised RNNs.
   plus dissipation, the other standard prior for the damped pendulum)
 - Dormand, J. R. & Prince, P. J. (1980). *A family of embedded Runge-Kutta
   formulae*. Journal of Computational and Applied Mathematics 6, 19–26.
+- Hairer, E., Lubich, C. & Wanner, G. (2006). *Geometric Numerical
+  Integration*, 2nd ed., Springer.  (conservation of invariants by
+  symplectic and non-symplectic integrators)
 - Hairer, E., Nørsett, S. P. & Wanner, G. (1993). *Solving Ordinary
   Differential Equations I — Nonstiff Problems*. Springer.
 - Strogatz, S. H. (2014). *Nonlinear Dynamics and Chaos*, 2nd ed., Westview.
