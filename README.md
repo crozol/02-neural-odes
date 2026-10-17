@@ -549,7 +549,13 @@ Three results follow.
    HNN's error is less than half that of the log-coordinate MLP
    (2.38 % ± 0.41 % against 5.03 % ± 0.23 %) and its `H` drift is four times
    smaller (2.18 % against 8.60 %), with every seed better than every MLP
-   seed on both metrics. Panel (c) shows why: the MLP's orbits spiral slowly
+   seed on both metrics. The comparison is paired: the five test orbits are
+   the same for every seed, and the HNN beats the log-coordinate MLP of the
+   same seed on both metrics in 5 of 5 seeds (sign test `p = 1/32 ≈ 0.03`
+   per metric, the smallest five seeds can give). Per orbit, its `H` drift is
+   lower in all 25 seed–orbit pairs and its error in 22 of 25; the three
+   exceptions are on the orbits `(5, 3.5)`, below the training range, and
+   `(8, 4)`. Panel (c) shows why: the MLP's orbits spiral slowly
    inward or outward, while the HNN's stay closed and lie close to the true
    ones, including the two orbits above the training range.
 
