@@ -630,12 +630,14 @@ above the fixed point.
 A healthy run on the defaults — the configuration shipped in `main.py`,
 trained on a CPU laptop — produces the numbers reported in sections 6 and 7:
 
-- training MSE within an order of magnitude of the observation-noise
-  variance for both systems;
-- relative extrapolation error of about **6 %** for the pendulum and
-  **1.6 %** for Lotka-Volterra;
-- a residual drift in the structural invariant (energy decay rate /
-  conserved `H`) that is informative rather than catastrophic.
+- training MSE about ten times the observation-noise variance (12× for
+  the pendulum, 7× for Lotka-Volterra, 5-seed means);
+- relative extrapolation error of **8.3 % ± 2.4 %** for the pendulum and
+  **0.96 % ± 0.57 %** for Lotka-Volterra (5 seeds);
+- a drift in the structural invariant that differs by system: the
+  conserved `H` of Lotka-Volterra drifts by 9.0 % ± 3.3 %, while the
+  pendulum's energy stops decaying past the training window (final-time
+  drift 106 % ± 41 %, Section 6.4).
 
 The unconstrained MLP `f_θ` *can* match a finite training trajectory but
 extrapolation accuracy is bounded by what the network can infer about
