@@ -19,6 +19,19 @@ and it left three gaps this script closes:
   observation in the original scripts. Here the initial state of every
   training trajectory is a free parameter, initialised at that observation
   and fitted jointly with the network.
+* **Prior on the initial state** (``--y0-prior``). A free y0 can drift far
+  from its observation (up to 0.2 in (x, z), about 7 σ) to absorb model
+  error. With the prior, the loss is the Gaussian MAP objective
+
+      Σ_t |pred − obs|² / (2 s²) + Σ |y0 − y_obs(0)|² / (2 s²),
+
+  divided by the number of residuals so that its scale matches the MSE used
+  without the prior; s is the observation noise in model coordinates (σ in
+  (x, z), σ / y_obs(0) in log-coordinates by the delta method). The prior
+  counts the first observation a second time, so it is a weak constraint by
+  construction: a large drift that survives it is driven by the data. Runs
+  go to data/ablation_ic_prior/. Every run reports the displacement
+  |y0 − y_obs(0)| / s per coordinate.
 
 Models: ``mlp`` (MLP in (x, z), loss in (x, z)), ``mlp_log`` (MLP in (q, p),
 loss in (q, p)), ``hnn`` (HNN in (q, p), loss in (q, p)); all ~19 000
@@ -38,6 +51,7 @@ over t ∈ [0, 22]:
 
 Usage:
     python -m scripts.ablation_ic --model hnn --regime multi --seed 0
+    python -m scripts.ablation_ic --model hnn --regime multi --seed 0 --y0-prior
     python -m scripts.ablation_ic --summarize        # aggregate all runs
     python -m scripts.ablation_ic --figure           # figures/hnn_ablation_ic.png
 """
@@ -66,6 +80,7 @@ NOISE, EPS = 0.03, 1e-3
 X_EQ = np.array([PARAMS.c / PARAMS.d, PARAMS.a / PARAMS.b])        # fixed point (4, 2.75)
 H_MIN = float(lotka_invariant(X_EQ, PARAMS))
 OUT = Path("data/ablation_ic")
+OUT_PRIOR = Path("data/ablation_ic_prior")
 
 
 def _log_coords(model: str) -> bool:
@@ -80,7 +95,13 @@ def _from_model(u: np.ndarray, model: str) -> np.ndarray:
     return np.exp(u) if _log_coords(model) else u
 
 
-def train_one(model: str, regime: str, seed: int, epochs: int = 2000) -> dict:
+def noise_scale(obs0: np.ndarray, model: str) -> np.ndarray:
+    """Observation noise of y_obs(0) in model coordinates (delta method in log)."""
+    return NOISE / np.clip(obs0, EPS, None) if _log_coords(model) else np.full_like(obs0, NOISE)
+
+
+def train_one(model: str, regime: str, seed: int, epochs: int = 2000,
+              y0_prior: bool = False) -> dict:
     torch.manual_seed(seed)
     np.random.seed(seed)
     t_train = np.linspace(0.0, T_TRAIN, N_TRAIN)
@@ -93,6 +114,8 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000) -> dict:
 
     func = HNN(dim=2, hidden=96, depth=3) if model == "hnn" else ODEFunc(dim=2, hidden=96, depth=3)
     y0 = nn.Parameter(target[0].clone())                   # learned initial states
+    y0_obs = target[0].clone()
+    s0 = torch.tensor(noise_scale(obs[0], model), dtype=torch.float32)
     opt = optim.Adam(list(func.parameters()) + [y0], lr=2e-3)
     sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
     t = torch.tensor(t_train, dtype=torch.float32)
@@ -103,6 +126,10 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000) -> dict:
         opt.zero_grad()
         pred = integrate(func, y0, t[:window], rtol=1e-5, atol=1e-7)
         loss = ((pred - target[:window]) ** 2).mean()
+        if y0_prior:
+            # same units as the MSE: residuals and prior both scaled by s² / N
+            n_res = pred.numel()
+            loss = loss + (((y0 - y0_obs) / s0) ** 2 * s0.pow(2).mean()).sum() / n_res
         loss.backward()
         torch.nn.utils.clip_grad_norm_(list(func.parameters()) + [y0], max_norm=2.0)
         opt.step()
@@ -115,6 +142,9 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000) -> dict:
 
     y0_true = _to_model(np.array(TRAIN_ICS[regime]), model)
     y0_err = float(np.abs(y0.detach().numpy() - y0_true).max())
+    y0_shift_sigma = (np.abs(y0.detach().numpy() - obs[0] if not _log_coords(model)
+                             else y0.detach().numpy() - np.log(np.clip(obs[0], EPS, None)))
+                      / noise_scale(obs[0], model))
 
     func.eval()
     t_test = np.linspace(0.0, T_TEST, N_TEST)
@@ -135,21 +165,23 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000) -> dict:
     res = {"model": model, "regime": regime, "seed": seed, "epochs": epochs,
            "n_params": sum(p.numel() for p in func.parameters()),
            "elapsed_s": round(elapsed, 1), "final_loss": history[-1],
-           "y0_max_abs_error": y0_err,
+           "y0_max_abs_error": y0_err, "y0_prior": y0_prior,
+           "y0_shift_in_noise_units": y0_shift_sigma.tolist(),
            "train_orbits": [score(ic) for ic in TRAIN_ICS[regime]],
            "test_orbits": [score(ic) for ic in TEST_ICS]}
-    OUT.mkdir(parents=True, exist_ok=True)
-    with open(OUT / f"{model}_{regime}_s{seed}.json", "w") as fh:
+    out = OUT_PRIOR if y0_prior else OUT
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / f"{model}_{regime}_s{seed}.json", "w") as fh:
         json.dump(res, fh, indent=2)
-    torch.save(func.state_dict(), OUT / f"{model}_{regime}_s{seed}.pt")
+    torch.save(func.state_dict(), out / f"{model}_{regime}_s{seed}.pt")
     print(f"[ok] {model}/{regime}/s{seed}: {elapsed:.0f} s, test rel_err "
           f"{np.nanmean([o['rel_err'] for o in res['test_orbits']]):.3%}, "
           f"test h_drift {np.nanmean([o['h_drift'] for o in res['test_orbits']]):.3%}", flush=True)
     return res
 
 
-def summarize(out: str = "data/ablation_ic_summary.json") -> None:
-    runs = [json.load(open(f)) for f in sorted(glob.glob(str(OUT / "*.json")))]
+def summarize(out: str = "data/ablation_ic_summary.json", src: Path = OUT) -> None:
+    runs = [json.load(open(f)) for f in sorted(glob.glob(str(src / "*.json")))]
     table = {}
     for r in runs:
         key = f"{r['model']}|{r['regime']}"
@@ -174,6 +206,9 @@ def summarize(out: str = "data/ablation_ic_summary.json") -> None:
         summary[key] = {"n_seeds": len(rs), "train_orbit_rel_err": tr_rel, "train_orbit_h_drift": tr_h,
                         "test_rel_err": te_rel, "test_h_drift": te_h, "test_per_ic": per_ic,
                         "y0_max_abs_error": agg([r["y0_max_abs_error"] for r in rs]),
+                        "y0_max_shift_in_noise_units": agg(
+                            [np.max(r["y0_shift_in_noise_units"]) if "y0_shift_in_noise_units" in r
+                             else np.nan for r in rs]),
                         "elapsed_s": agg([r["elapsed_s"] for r in rs])}
         m, g = key.split("|")
         f = lambda a: f"{a['mean']:.2%} ± {a['std']:.2%}"   # noqa: E731
@@ -254,11 +289,15 @@ if __name__ == "__main__":
     p.add_argument("--epochs", type=int, default=2000)
     p.add_argument("--summarize", action="store_true")
     p.add_argument("--figure", action="store_true")
+    p.add_argument("--y0-prior", action="store_true",
+                   help="Gaussian prior on the learned initial state (runs in data/ablation_ic_prior/)")
     a = p.parse_args()
-    if a.summarize:
+    if a.summarize and a.y0_prior:
+        summarize("data/ablation_ic_prior_summary.json", OUT_PRIOR)
+    elif a.summarize:
         summarize()
     elif a.figure:
         figure()
     else:
         for s in a.seed:
-            train_one(a.model, a.regime, s, a.epochs)
+            train_one(a.model, a.regime, s, a.epochs, a.y0_prior)

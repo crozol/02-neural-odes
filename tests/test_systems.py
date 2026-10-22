@@ -68,3 +68,11 @@ def test_ablation_fixed_point_and_coordinates():
     y = np.array([[10.0, 5.0], [6.0, 4.0]])
     assert np.allclose(_from_model(_to_model(y, "hnn"), "hnn"), y)
     assert np.allclose(_to_model(y, "mlp"), y)
+
+
+def test_y0_prior_noise_scale_uses_the_delta_method_in_log_coordinates():
+    """σ in (x, z); σ / y in (ln x, ln z), to first order."""
+    from scripts.ablation_ic import NOISE, noise_scale
+    y = np.array([[10.0, 5.0]])
+    np.testing.assert_allclose(noise_scale(y, "mlp"), NOISE)
+    np.testing.assert_allclose(noise_scale(y, "hnn"), NOISE / y)
