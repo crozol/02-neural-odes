@@ -559,12 +559,21 @@ Three results follow.
    inward or outward, while the HNN's stay closed and lie close to the true
    ones, including the two orbits above the training range.
 
-The learned initial states move away from the first observations by more
-than the observation noise (`σ = 0.03`): up to `0.2` in `(x, z)` for the MLPs
-and `0.05–0.06` in log-coordinates for the HNN. With the initial state free,
-the network and the starting point trade off against each other; scoring
-from the exact initial conditions, as done here, keeps that trade-off out of
-the comparison.
+The learned initial states move away from the true ones: with three
+trajectories, by up to `0.27` in `(x, z)` for the MLP, `0.20` in
+log-coordinates for the log-coordinate MLP and `0.07` for the HNN. With the
+initial state free, the network and the starting point trade off against
+each other; scoring from the exact initial conditions, as done here, keeps
+that trade-off out of the comparison. A Gaussian prior that ties each
+initial state to its first observation, with the observation noise as its
+width (`--y0-prior`; a weak constraint by construction, since it counts that
+observation a second time), barely moves them: they stay up to 17 noise
+units from the observation for the HNN and 38 for the log-coordinate MLP.
+The comparison does not change either: HNN `2.44% ± 0.96%` error and
+`2.20% ± 0.40%` drift, log-coordinate MLP `4.55% ± 0.31%` and
+`7.46% ± 0.62%`, with the HNN lower on all 5 seeds. The displacement is
+driven by the data, not by the missing prior: the starting point absorbs
+model error.
 
 ### 8.3 · What this rules out, and what it doesn't
 
