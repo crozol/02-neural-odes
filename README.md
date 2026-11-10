@@ -5,7 +5,7 @@
 [![Portfolio page](https://img.shields.io/badge/Portfolio-page-7C3AED?style=flat-square)](https://crozol.github.io/projects/02-neural-odes.html)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/neural-odes-hnn-demo)
 
-**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; for Lotka-Volterra, a Hamiltonian Neural Network helps once the training data cover more than one orbit: trained on three trajectories and scored on five unseen ones, it reaches **2.4 % ± 0.4 %** relative error and **2.2 %** drift in the conserved `H`, against **5.0 %** and **8.6 %** for the same MLP in the same log-coordinates (5 seeds) — the control that removes the coordinate confounder of the naive comparison — with the HNN better on both metrics in 5 of 5 seeds (sign test `p = 1/32 ≈ 0.03`). Trained on a single trajectory, no model generalises to new orbits (17–18 %), and the HNN's lower `H` drift on that orbit comes mostly from the change to log-coordinates. Stack: PyTorch · torchdiffeq · NumPy.
+**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; for Lotka-Volterra, a Hamiltonian Neural Network helps once the training data cover more than one orbit: trained on three trajectories, with the loss measured where the noise is added so that it is the exact likelihood, and scored on five unseen orbits, it reaches **2.6 % ± 0.9 %** relative error and **6.0 %** drift in the conserved `H`, against **4.7 %** and **12.6 %** for the same MLP in the same log-coordinates (5 seeds), with every HNN seed better than every MLP seed on both metrics (Mann-Whitney, two-sided `p = 0.008`). Trained on a single trajectory, no model generalises to new orbits (14–17 %). On that orbit the log-coordinates make the fit track it, but the lower `H` drift comes mostly from measuring the loss in log-coordinates, which over-weights the bottom of the orbit where `H` is most sensitive, not from the Hamiltonian structure. Stack: PyTorch · torchdiffeq · NumPy.
 
 A numerical experiment: take two textbook ODE systems whose ground-truth
 vector field is known exactly, observe a short noisy trajectory of each, and
@@ -499,10 +499,9 @@ learned the vector field or one closed curve.
 `scripts/ablation_ic.py` addresses all three. It trains three models with the
 same width, depth, schedule and optimiser —
 
-- **MLP (x, z)**: the baseline, loss in `(x, z)`;
-- **MLP (ln x, ln z)**: the same MLP trained in log-coordinates with the
-  HNN's loss, a control that separates the coordinate change from the
-  Hamiltonian structure;
+- **MLP (x, z)**: the baseline;
+- **MLP (ln x, ln z)**: the same MLP in log-coordinates, a control that
+  separates the coordinate change from the Hamiltonian structure;
 - **HNN**, in log-coordinates —
 
 in two regimes: on **one** trajectory, from `(10, 5)` as before, or on
@@ -512,7 +511,17 @@ network, instead of being fixed to the first noisy observation. Every model
 is then integrated from the exact initial conditions of **five orbits it
 never saw** — two inside the range of `H` spanned by the three training
 orbits, one below it (closer to the fixed point `(4, 2.75)`) and two above it
-— over `t ∈ [0, 22]`. Five seeds per configuration, 30 runs in total.
+— over `t ∈ [0, 22]`. Five seeds per configuration.
+
+For all three models the loss is measured in `(x, z)`, where the noise is
+added (`σ = 0.03` on each coordinate): a log-coordinate prediction is mapped
+back with `exp`, and the mean squared residual is then the exact Gaussian
+negative log-likelihood of the observations, up to constants. Section 8.1
+measured the loss in log-coordinates instead, which divides each residual's
+noise by `x` and so weights it by `1/x²` against the likelihood — up to
+`7 500×` more at the bottom of a training orbit than at its top. A second
+set of runs (`--loss`) crosses the coordinates of the model with the
+coordinates of the loss, to separate the two (Result 1).
 
 The `H` drift is now normalised by the height of each orbit above the fixed
 point, `std(H) / (H(y₀) − H_min)`, because several test orbits have `H`
@@ -521,65 +530,92 @@ close to zero and the earlier ratio `std(H)/⟨H⟩` would blow up there.
 | Training | Model | Unseen orbits: rel. error | Unseen orbits: `H` drift | Training orbit: rel. error | Training orbit: `H` drift |
 |---|---|---|---|---|---|
 | 1 trajectory | MLP (x, z) | 16.6 % ± 1.9 % | 82.7 % ± 15.7 % | 1.73 % ± 0.39 % | 6.45 % ± 1.51 % |
-| 1 trajectory | MLP (ln x, ln z) | 17.3 % ± 1.2 % | 60.1 % ± 1.6 % | **0.43 % ± 0.14 %** | **2.14 % ± 0.30 %** |
-| 1 trajectory | HNN | 18.5 % ± 2.2 % | **11.7 % ± 0.9 %** | 3.06 % ± 1.12 % | 2.36 % ± 0.29 % |
+| 1 trajectory | MLP (ln x, ln z) | 14.5 % ± 0.7 % | 65.9 % ± 3.5 % | **0.42 % ± 0.03 %** | 5.12 % ± 0.54 % |
+| 1 trajectory | HNN | 13.7 % ± 3.0 % | **12.1 % ± 0.7 %** | 0.71 % ± 0.33 % | **4.72 % ± 0.84 %** |
 | 3 trajectories | MLP (x, z) | 5.35 % ± 0.37 % | 32.5 % ± 1.3 % | 3.72 % ± 0.56 % | 12.8 % ± 1.4 % |
-| 3 trajectories | MLP (ln x, ln z) | 5.03 % ± 0.23 % | 8.60 % ± 0.33 % | 3.37 % ± 0.28 % | 5.51 % ± 0.15 % |
-| 3 trajectories | HNN | **2.38 % ± 0.41 %** | **2.18 % ± 0.32 %** | 0.99 % ± 0.35 % | 1.52 % ± 0.18 % |
+| 3 trajectories | MLP (ln x, ln z) | 4.65 % ± 0.45 % | 12.6 % ± 1.8 % | 2.06 % ± 0.47 % | 8.19 % ± 0.68 % |
+| 3 trajectories | HNN | **2.57 % ± 0.94 %** | **6.03 % ± 1.01 %** | 0.63 % ± 0.10 % | 3.31 % ± 0.41 % |
 
-Mean ± standard deviation over 5 seeds; the unseen-orbit columns average the
-five test orbits. "Training orbit" is the orbit from `(10, 5)`, integrated over
-`t ∈ [0, 22]`, i.e. the training window plus its extrapolation.
+Mean ± standard deviation over 5 seeds, loss in `(x, z)`; the unseen-orbit
+columns average the five test orbits. "Training orbit" is the orbit from
+`(10, 5)`, integrated over `t ∈ [0, 22]`, i.e. the training window plus its
+extrapolation.
 
 ![Ablation on unseen orbits](figures/hnn_ablation_ic.png)
 
+The same models with the loss measured in either coordinate system:
+
+| Model | Loss in | 3 trajectories · unseen: rel. error | 3 trajectories · unseen: `H` drift | 1 trajectory · training orbit: rel. error | 1 trajectory · training orbit: `H` drift |
+|---|---|---|---|---|---|
+| MLP (x, z) | `(x, z)` = likelihood | 5.35 % ± 0.37 % | 32.5 % ± 1.3 % | 1.73 % ± 0.39 % | 6.45 % ± 1.51 % |
+| MLP (x, z) | `(ln x, ln z)` | 6.77 % ± 0.26 % | 23.6 % ± 4.5 % | 1.68 % ± 0.34 % | 3.66 % ± 0.39 % |
+| MLP (ln x, ln z) | `(x, z)` = likelihood | 4.65 % ± 0.45 % | 12.6 % ± 1.8 % | 0.42 % ± 0.03 % | 5.12 % ± 0.54 % |
+| MLP (ln x, ln z) | `(ln x, ln z)` | 5.03 % ± 0.23 % | 8.60 % ± 0.33 % | 0.43 % ± 0.14 % | 2.14 % ± 0.30 % |
+| HNN | `(x, z)` = likelihood | 2.57 % ± 0.94 % | 6.03 % ± 1.01 % | 0.71 % ± 0.33 % | 4.72 % ± 0.84 % |
+| HNN | `(ln x, ln z)` | 2.38 % ± 0.41 % | 2.18 % ± 0.32 % | 3.06 % ± 1.12 % | 2.36 % ± 0.29 % |
+
 Three results follow.
 
-1. **On the training orbit, the coordinates do most of the work.** With one
-   trajectory, the MLP in log-coordinates conserves `H` as well as the HNN
-   (2.14 % vs 2.36 %) and tracks the orbit more closely (0.43 % vs 3.06 %).
-   The drop in `H` drift of Section 8.1 came mostly from the change to
-   `(ln x, ln z)`, not from the Hamiltonian structure.
+1. **On the training orbit, the coordinates make the fit track the orbit;
+   the loss does most of the conserving.** With one trajectory, moving the
+   MLP to log-coordinates cuts its error on the training orbit from 1.7 % to
+   0.4 % with either loss. Its `H` drift falls mostly with the loss instead:
+   measuring the residuals in log-coordinates lowers it from 6.5 % to 3.7 %
+   for the MLP in `(x, z)` and from 5.1 % to 2.1 % for the MLP in
+   `(ln x, ln z)`, while the change of coordinates under the exact
+   likelihood lowers it only from 6.5 % to 5.1 %. The HNN follows the same
+   pattern (4.7 % with the likelihood, 2.4 % with the loss in
+   log-coordinates). The reason is in `H = d x − c ln x + b z − a ln z`: its
+   logarithmic terms make it most sensitive where the populations are small,
+   the region a loss in log-coordinates over-weights (by up to 7 500× on the
+   training orbits, against the likelihood). The drop in `H` drift of
+   Section 8.1 came mostly from the loss, not from the Hamiltonian
+   structure.
 2. **One trajectory does not determine the vector field.** Trained on a
-   single orbit, all three models miss unseen orbits by 17–18 %, the HNN
-   included. The HNN's predicted orbits still close (`H` drift 11.7 % against
-   60–83 %), but they are the wrong orbits: a conserved `H_θ` that is
+   single orbit, all three models miss unseen orbits by 14–17 %, the HNN
+   included. The HNN's predicted orbits still close (`H` drift 12.1 % against
+   66–83 %), but they are the wrong orbits: a conserved `H_θ` that is
    accurate along one curve need not be accurate anywhere else.
 3. **With three trajectories, the prior pays off.** On unseen orbits the
-   HNN's error is less than half that of the log-coordinate MLP
-   (2.38 % ± 0.41 % against 5.03 % ± 0.23 %) and its `H` drift is four times
-   smaller (2.18 % against 8.60 %), with every seed better than every MLP
-   seed on both metrics. The comparison is paired: the five test orbits are
-   the same for every seed, and the HNN beats the log-coordinate MLP of the
-   same seed on both metrics in 5 of 5 seeds (sign test `p = 1/32 ≈ 0.03`
-   per metric, the smallest five seeds can give). Per orbit, its `H` drift is
-   lower in all 25 seed–orbit pairs and its error in 22 of 25; the three
-   exceptions are on the orbits `(5, 3.5)`, below the training range, and
-   `(8, 4)`. Panel (c) shows why: the MLP's orbits spiral slowly
-   inward or outward, while the HNN's stay closed and lie close to the true
-   ones, including the two orbits above the training range.
+   HNN's error is 1.8 times lower than that of the log-coordinate MLP
+   (2.57 % ± 0.94 % against 4.65 % ± 0.45 %) and its `H` drift 2.1 times
+   lower (6.03 % against 12.6 %), with every seed better than every MLP seed
+   on both metrics (Mann-Whitney, two-sided `p = 0.008`, the smallest five
+   seeds against five can give). The comparison is paired: the five test
+   orbits are the same for every seed, and the HNN beats the
+   log-coordinate MLP of the same seed on both metrics in 5 of 5 seeds
+   (sign test, two-sided `p = 0.06`). Per orbit, its `H` drift is lower in
+   23 of 25 seed–orbit pairs and its error in 20 of 25; the exceptions are
+   on the orbit `(5, 3.5)`, below the training range (both drift
+   exceptions and three error ones), and on `(8, 4)`. Panel (c) shows why:
+   the MLP's orbits spiral slowly inward or outward, while the HNN's stay
+   closed and lie close to the true ones, including the two orbits above
+   the training range. With the loss in log-coordinates, as in Section 8.1,
+   the gap is wider (2.38 % and 2.18 % against 5.03 % and 8.60 %), with the
+   same separation.
 
 The learned initial states move away from the true ones: with three
-trajectories, by up to `0.27` in `(x, z)` for the MLP, `0.20` in
-log-coordinates for the log-coordinate MLP and `0.07` for the HNN. With the
+trajectories, by up to `0.27` in `(x, z)` for the MLP, and `0.09` in
+log-coordinates for the log-coordinate MLP and `0.03` for the HNN. With the
 initial state free, the network and the starting point trade off against
 each other; scoring from the exact initial conditions, as done here, keeps
-that trade-off out of the comparison. A Gaussian prior that ties each
-initial state to its first observation, with the observation noise as its
-width (`--y0-prior`; a weak constraint by construction, since it counts that
-observation a second time), barely moves them: they stay up to 17 noise
-units from the observation for the HNN and 38 for the log-coordinate MLP.
-The comparison does not change either: HNN `2.44% ± 0.96%` error and
-`2.20% ± 0.40%` drift, log-coordinate MLP `4.55% ± 0.31%` and
-`7.46% ± 0.62%`, with the HNN lower on all 5 seeds. The displacement is
-driven by the data, not by the missing prior: the starting point absorbs
-model error.
+that trade-off out of the comparison. Measured from the first observation,
+they move a median of 16 noise units for the log-coordinate MLP and 9 for
+the HNN. A Gaussian prior that ties each initial state to that observation,
+with the observation noise as its width (`--y0-prior`; with the loss in
+`(x, z)`, the exact MAP prior, though it counts that observation a second
+time), barely moves them (15 and 8 noise units), and the comparison does not
+change: HNN `1.98% ± 0.82%` error and `5.21% ± 1.12%` drift, log-coordinate
+MLP `4.22% ± 0.25%` and `11.1% ± 2.0%`, with every HNN seed better on both.
+Since the loss is the likelihood, the displacement is not an artefact of how
+the loss weighs `y0`: the starting point absorbs model error.
 
 ### 8.3 · What this rules out, and what it doesn't
 
 **Rules out.** That the Hamiltonian prior was the main reason for the lower
 `H` drift on the training orbit (Section 8.1): an MLP in the same coordinates
-does as well. And that a model fitted to one trajectory has learned the
+with the same loss does as well, and most of the drop comes from measuring
+the loss in log-coordinates. And that a model fitted to one trajectory has learned the
 dynamics: none of the three generalises to other orbits.
 
 **Supports.** That once the training data cover more than one orbit, the
@@ -637,7 +673,9 @@ fields per experiment:
 
 The controlled ablation of Section 8.2 (`scripts/ablation_ic.py`) writes one
 JSON per run to `data/ablation_ic/` and the aggregate to
-`data/ablation_ic_summary.json`. Its `rel_err` is `√MSE / max\|y\|` over
+`data/ablation_ic_summary.json`; runs whose loss is not in the model's own
+coordinates go to `data/ablation_ic_loss/` and
+`data/ablation_ic_loss_summary.json`. Its `rel_err` is `√MSE / max\|y\|` over
 `t ∈ [0, 22]` from the exact initial condition, and its `h_drift` is
 `std(H) / (H(y₀) − H_min)`, the drift relative to the height of the orbit
 above the fixed point.
@@ -685,10 +723,12 @@ python -m scripts.train_hnn_lotka
 python -m scripts.train_hnn_sho
 
 # controlled ablation of Section 8.2: 3 models x 2 regimes x 5 seeds
-# (~10-13 min per run on one CPU core; the 30 runs are independent)
+# (~10-13 min per run on one CPU core; the runs are independent)
 python -m scripts.ablation_ic --model hnn --regime multi --seed 0 1 2 3 4
+python -m scripts.ablation_ic --model hnn --regime multi --seed 0 1 2 3 4 --loss xz
 python -m scripts.ablation_ic --summarize
-python -m scripts.ablation_ic --figure
+python -m scripts.ablation_ic --summarize --loss xz
+python -m scripts.ablation_ic --figure            # loss in (x, z)
 
 # 5-seed sweep of the MLP baseline (used for the headline numbers in
 # sections 6 and 7). Takes ~2 h on a laptop CPU.
@@ -787,6 +827,8 @@ expressive than discretised RNNs.
     ├── lotka_hnn_arrays.npz
     ├── ablation_ic/              # one JSON + checkpoint per ablation run
     ├── ablation_ic_summary.json
+    ├── ablation_ic_loss/         # the same, loss in the other coordinates (--loss)
+    ├── ablation_ic_loss_summary.json
     └── sho_hnn_arrays.npz
 ```
 

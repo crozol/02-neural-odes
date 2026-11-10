@@ -65,7 +65,7 @@ Usage:
     python -m scripts.ablation_ic --model hnn --regime multi --seed 0
     python -m scripts.ablation_ic --model hnn --regime multi --seed 0 --y0-prior
     python -m scripts.ablation_ic --summarize        # aggregate all runs
-    python -m scripts.ablation_ic --figure           # figures/hnn_ablation_ic.png
+    python -m scripts.ablation_ic --figure           # figures/hnn_ablation_ic.png, loss in (x, z)
 """
 
 from __future__ import annotations
@@ -265,18 +265,33 @@ def summarize(out: str = "data/ablation_ic_summary.json", src: Path = OUT) -> No
     print(f"[ok] {out}")
 
 
-def figure(summary_path: str = "data/ablation_ic_summary.json",
-           out: str = "figures/hnn_ablation_ic.png", seed: int = 0) -> None:
+def _run_key(model: str, regime: str, loss: str) -> str:
+    """Summary key of a model trained with its residuals in ``loss`` coordinates."""
+    key = f"{model}|{regime}"
+    return key if loss == default_loss(model) else f"{key}|{loss}-loss"
+
+
+def _checkpoint(model: str, regime: str, loss: str, seed: int) -> Path:
+    if loss == default_loss(model):
+        return OUT / f"{model}_{regime}_s{seed}.pt"
+    return OUT_LOSS / f"{model}_{regime}_{loss}loss_s{seed}.pt"
+
+
+def figure(loss: str = "xz", out: str = "figures/hnn_ablation_ic.png", seed: int = 0) -> None:
     """(a) relative error and (b) H drift on the held-out orbits, every seed
     as a dot over the mean bar; (c) the held-out orbits predicted by the HNN
-    and by the log-coordinate MLP trained on three trajectories (one seed)."""
+    and by the log-coordinate MLP trained on three trajectories (one seed).
+    Every model with its residuals in ``loss`` coordinates: ``xz`` (default)
+    is the exact likelihood of the simulated noise."""
     import matplotlib.pyplot as plt
 
     from src.plots import _save, _style
 
     _style()
 
-    S = json.load(open(summary_path))["results"]
+    S = json.load(open("data/ablation_ic_summary.json"))["results"]
+    if Path("data/ablation_ic_loss_summary.json").exists():
+        S.update(json.load(open("data/ablation_ic_loss_summary.json"))["results"])
     models = [("mlp", "MLP (x, z)"), ("mlp_log", "MLP (ln x, ln z)"), ("hnn", "HNN")]
     colors = {"mlp": "#9aa3b8", "mlp_log": "#7c5cff", "hnn": "#f472b6"}
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.8))
@@ -284,7 +299,7 @@ def figure(summary_path: str = "data/ablation_ic_summary.json",
                               (axes[1], "test_h_drift", "(b) drift of the true H, unseen orbits")]:
         for gi, regime in enumerate(["single", "multi"]):
             for mi, (m, label) in enumerate(models):
-                a = S[f"{m}|{regime}"][metric]
+                a = S[_run_key(m, regime, loss)][metric]
                 x = gi * 4 + mi
                 ax.bar(x, 100 * a["mean"], color=colors[m], alpha=0.75,
                        label=label if gi == 0 else None)
@@ -308,7 +323,7 @@ def figure(summary_path: str = "data/ablation_ic_summary.json",
                 label="truth" if k == 0 else None)
     for m, style in [("mlp_log", "--"), ("hnn", "-")]:
         func = HNN(2, 96, 3) if m == "hnn" else ODEFunc(2, 96, 3)
-        func.load_state_dict(torch.load(OUT / f"{m}_multi_s{seed}.pt"))
+        func.load_state_dict(torch.load(_checkpoint(m, "multi", loss, seed)))
         func.eval()
         for k, ic in enumerate(TEST_ICS):
             u = integrate(func, torch.tensor(np.log(ic), dtype=torch.float32), tt).detach().numpy()
@@ -348,7 +363,7 @@ if __name__ == "__main__":
             src, name = (OUT_PRIOR, "prior") if a.y0_prior else (OUT, None)
         summarize(f"data/ablation_ic_{name}_summary.json" if name else "data/ablation_ic_summary.json", src)
     elif a.figure:
-        figure()
+        figure(a.loss or "xz")
     else:
         for s in a.seed:
             train_one(a.model, a.regime, s, a.epochs, a.y0_prior, a.loss)
