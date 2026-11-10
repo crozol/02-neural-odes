@@ -19,19 +19,31 @@ and it left three gaps this script closes:
   observation in the original scripts. Here the initial state of every
   training trajectory is a free parameter, initialised at that observation
   and fitted jointly with the network.
-* **Prior on the initial state** (``--y0-prior``). A free y0 can drift far
-  from its observation (up to 0.2 in (x, z), about 7 σ) to absorb model
-  error. With the prior, the loss is the Gaussian MAP objective
+* **Prior on the initial state** (``--y0-prior``). A free y0 can move away
+  from the true initial state (up to 0.27 in (x, z)). With the prior, a
+  Gaussian term ties y0 to its first observation:
 
-      Σ_t |pred − obs|² / (2 s²) + Σ |y0 − y_obs(0)|² / (2 s²),
+      mean_t |pred − obs|² + Σ |y0 − y_obs(0)|² · mean(s²) / (s² · N),
 
-  divided by the number of residuals so that its scale matches the MSE used
-  without the prior; s is the observation noise in model coordinates (σ in
-  (x, z), σ / y_obs(0) in log-coordinates by the delta method). The prior
-  counts the first observation a second time, so it is a weak constraint by
-  construction: a large drift that survives it is driven by the data. Runs
-  go to data/ablation_ic_prior/. Every run reports the displacement
-  |y0 − y_obs(0)| / s per coordinate.
+  with s the observation noise in the coordinates of the loss (σ in (x, z),
+  σ / y_obs(0) in log-coordinates by the delta method) and N the number of
+  residuals. The prior counts the first observation a second time, so it is
+  a weak constraint by construction. Runs go to data/ablation_ic_prior/.
+  Every run reports the displacement |y0 − y_obs(0)| / s per coordinate.
+* **Coordinates of the loss** (``--loss xz|log``). The noise is added in
+  (x, z) with a constant σ, so the mean squared residual in (x, z) is the
+  exact Gaussian likelihood. In log-coordinates the same noise has standard
+  deviation σ / x, which varies along a training orbit by up to 87× (prey,
+  orbit from (12, 6)), so an unweighted mean squared residual in (ln x, ln z)
+  is *not* that likelihood: it over-weights the bottom of the orbit, by up
+  to 7 500×. By default every model measures its residuals in its own
+  coordinates; ``--loss xz`` maps a log-coordinate prediction back with exp
+  and measures the residual in (x, z), and ``--loss log`` does the converse
+  for the (x, z) MLP. Together with the defaults this gives a 2 × 2 design,
+  coordinates of the model × coordinates of the loss, which separates the
+  effect of the coordinates from the weighting the loss gives each point;
+  only with ``--loss xz`` is the y0 prior the exact MAP prior. Runs go to
+  data/ablation_ic_loss/ (data/ablation_ic_loss_prior/ with the prior).
 
 Models: ``mlp`` (MLP in (x, z), loss in (x, z)), ``mlp_log`` (MLP in (q, p),
 loss in (q, p)), ``hnn`` (HNN in (q, p), loss in (q, p)); all ~19 000
@@ -81,10 +93,34 @@ X_EQ = np.array([PARAMS.c / PARAMS.d, PARAMS.a / PARAMS.b])        # fixed point
 H_MIN = float(lotka_invariant(X_EQ, PARAMS))
 OUT = Path("data/ablation_ic")
 OUT_PRIOR = Path("data/ablation_ic_prior")
+OUT_LOSS = Path("data/ablation_ic_loss")              # loss not in the model's own coordinates
+OUT_LOSS_PRIOR = Path("data/ablation_ic_loss_prior")
 
 
 def _log_coords(model: str) -> bool:
     return model in ("mlp_log", "hnn")
+
+
+def default_loss(model: str) -> str:
+    """By default every model measures its residuals in its own coordinates."""
+    return "log" if _log_coords(model) else "xz"
+
+
+def _xz_to(y: np.ndarray, space: str) -> np.ndarray:
+    """Observations in (x, z) → the coordinates of the loss."""
+    return np.log(np.clip(y, EPS, None)) if space == "log" else y
+
+
+def model_to_loss(u: torch.Tensor, model: str, space: str) -> torch.Tensor:
+    """A state in model coordinates → the coordinates of the loss."""
+    if _log_coords(model) == (space == "log"):
+        return u
+    return torch.exp(u) if _log_coords(model) else torch.log(torch.clamp(u, min=EPS))
+
+
+def loss_noise_scale(obs0: np.ndarray, space: str) -> np.ndarray:
+    """Observation noise in the coordinates of the loss (delta method in log)."""
+    return NOISE / np.clip(obs0, EPS, None) if space == "log" else np.full_like(obs0, NOISE)
 
 
 def _to_model(y: np.ndarray, model: str) -> np.ndarray:
@@ -101,7 +137,8 @@ def noise_scale(obs0: np.ndarray, model: str) -> np.ndarray:
 
 
 def train_one(model: str, regime: str, seed: int, epochs: int = 2000,
-              y0_prior: bool = False) -> dict:
+              y0_prior: bool = False, loss_space: str | None = None) -> dict:
+    space = loss_space or default_loss(model)
     torch.manual_seed(seed)
     np.random.seed(seed)
     t_train = np.linspace(0.0, T_TRAIN, N_TRAIN)
@@ -114,8 +151,9 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000,
 
     func = HNN(dim=2, hidden=96, depth=3) if model == "hnn" else ODEFunc(dim=2, hidden=96, depth=3)
     y0 = nn.Parameter(target[0].clone())                   # learned initial states
-    y0_obs = target[0].clone()
-    s0 = torch.tensor(noise_scale(obs[0], model), dtype=torch.float32)
+    target_loss = torch.tensor(_xz_to(obs, space), dtype=torch.float32)
+    y0_obs = target_loss[0].clone()
+    s0 = torch.tensor(loss_noise_scale(obs[0], space), dtype=torch.float32)
     opt = optim.Adam(list(func.parameters()) + [y0], lr=2e-3)
     sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
     t = torch.tensor(t_train, dtype=torch.float32)
@@ -125,11 +163,12 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000,
             window = min(window + 30, N_TRAIN)
         opt.zero_grad()
         pred = integrate(func, y0, t[:window], rtol=1e-5, atol=1e-7)
-        loss = ((pred - target[:window]) ** 2).mean()
+        loss = ((model_to_loss(pred, model, space) - target_loss[:window]) ** 2).mean()
         if y0_prior:
             # same units as the MSE: residuals and prior both scaled by s² / N
             n_res = pred.numel()
-            loss = loss + (((y0 - y0_obs) / s0) ** 2 * s0.pow(2).mean()).sum() / n_res
+            y0_l = model_to_loss(y0, model, space)
+            loss = loss + (((y0_l - y0_obs) / s0) ** 2 * s0.pow(2).mean()).sum() / n_res
         loss.backward()
         torch.nn.utils.clip_grad_norm_(list(func.parameters()) + [y0], max_norm=2.0)
         opt.step()
@@ -165,16 +204,19 @@ def train_one(model: str, regime: str, seed: int, epochs: int = 2000,
     res = {"model": model, "regime": regime, "seed": seed, "epochs": epochs,
            "n_params": sum(p.numel() for p in func.parameters()),
            "elapsed_s": round(elapsed, 1), "final_loss": history[-1],
-           "y0_max_abs_error": y0_err, "y0_prior": y0_prior,
+           "y0_max_abs_error": y0_err, "y0_prior": y0_prior, "loss_space": space,
            "y0_shift_in_noise_units": y0_shift_sigma.tolist(),
            "train_orbits": [score(ic) for ic in TRAIN_ICS[regime]],
            "test_orbits": [score(ic) for ic in TEST_ICS]}
-    out = OUT_PRIOR if y0_prior else OUT
+    if space == default_loss(model):
+        out, stem = (OUT_PRIOR if y0_prior else OUT), f"{model}_{regime}_s{seed}"
+    else:
+        out, stem = (OUT_LOSS_PRIOR if y0_prior else OUT_LOSS), f"{model}_{regime}_{space}loss_s{seed}"
     out.mkdir(parents=True, exist_ok=True)
-    with open(out / f"{model}_{regime}_s{seed}.json", "w") as fh:
+    with open(out / f"{stem}.json", "w") as fh:
         json.dump(res, fh, indent=2)
-    torch.save(func.state_dict(), out / f"{model}_{regime}_s{seed}.pt")
-    print(f"[ok] {model}/{regime}/s{seed}: {elapsed:.0f} s, test rel_err "
+    torch.save(func.state_dict(), out / f"{stem}.pt")
+    print(f"[ok] {model}/{regime}/{space}-loss/s{seed}: {elapsed:.0f} s, test rel_err "
           f"{np.nanmean([o['rel_err'] for o in res['test_orbits']]):.3%}, "
           f"test h_drift {np.nanmean([o['h_drift'] for o in res['test_orbits']]):.3%}", flush=True)
     return res
@@ -185,6 +227,8 @@ def summarize(out: str = "data/ablation_ic_summary.json", src: Path = OUT) -> No
     table = {}
     for r in runs:
         key = f"{r['model']}|{r['regime']}"
+        if r.get("loss_space", default_loss(r["model"])) != default_loss(r["model"]):
+            key += f"|{r['loss_space']}-loss"
         table.setdefault(key, []).append(r)
     summary = {}
     print(f"{'model':8s} {'regime':7s} n  "
@@ -210,9 +254,11 @@ def summarize(out: str = "data/ablation_ic_summary.json", src: Path = OUT) -> No
                             [np.max(r["y0_shift_in_noise_units"]) if "y0_shift_in_noise_units" in r
                              else np.nan for r in rs]),
                         "elapsed_s": agg([r["elapsed_s"] for r in rs])}
-        m, g = key.split("|")
+        m, g = key.split("|")[:2]
+        if key.count("|") == 2:
+            m += "/" + key.split("|")[2]
         f = lambda a: f"{a['mean']:.2%} ± {a['std']:.2%}"   # noqa: E731
-        print(f"{m:8s} {g:7s} {len(rs)}  {f(tr_rel):>22s} {f(tr_h):>22s} {f(te_rel):>20s} {f(te_h):>20s}")
+        print(f"{m:8s} {g:7s} {len(rs)}{f(tr_rel):>22s} {f(tr_h):>22s} {f(te_rel):>20s} {f(te_h):>20s}")
     with open(out, "w") as fh:
         json.dump({"test_ics": TEST_ICS, "train_ics": TRAIN_ICS, "H_min": H_MIN,
                    "results": summary}, fh, indent=2)
@@ -291,13 +337,18 @@ if __name__ == "__main__":
     p.add_argument("--figure", action="store_true")
     p.add_argument("--y0-prior", action="store_true",
                    help="Gaussian prior on the learned initial state (runs in data/ablation_ic_prior/)")
+    p.add_argument("--loss", choices=["xz", "log"], default=None,
+                   help="coordinates of the residuals (default: the model's own); "
+                        "runs whose loss differs from the default go to data/ablation_ic_loss/")
     a = p.parse_args()
-    if a.summarize and a.y0_prior:
-        summarize("data/ablation_ic_prior_summary.json", OUT_PRIOR)
-    elif a.summarize:
-        summarize()
+    if a.summarize:
+        if a.loss:
+            src, name = (OUT_LOSS_PRIOR, "loss_prior") if a.y0_prior else (OUT_LOSS, "loss")
+        else:
+            src, name = (OUT_PRIOR, "prior") if a.y0_prior else (OUT, None)
+        summarize(f"data/ablation_ic_{name}_summary.json" if name else "data/ablation_ic_summary.json", src)
     elif a.figure:
         figure()
     else:
         for s in a.seed:
-            train_one(a.model, a.regime, s, a.epochs, a.y0_prior)
+            train_one(a.model, a.regime, s, a.epochs, a.y0_prior, a.loss)

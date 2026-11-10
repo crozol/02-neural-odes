@@ -76,3 +76,21 @@ def test_y0_prior_noise_scale_uses_the_delta_method_in_log_coordinates():
     y = np.array([[10.0, 5.0]])
     np.testing.assert_allclose(noise_scale(y, "mlp"), NOISE)
     np.testing.assert_allclose(noise_scale(y, "hnn"), NOISE / y)
+
+
+def test_loss_coordinates_default_is_unchanged_and_xz_loss_maps_back():
+    """By default every model's residual is in its own coordinates (the
+    published runs); with the loss in (x, z) a log-coordinate prediction is
+    mapped back with exp, so the residual is the one the noise model defines."""
+    import torch
+    from scripts.ablation_ic import (NOISE, _to_model, _xz_to, default_loss,
+                                     loss_noise_scale, model_to_loss)
+    y = np.array([[10.0, 5.0], [0.5, 0.9]])
+    assert [default_loss(m) for m in ("mlp", "mlp_log", "hnn")] == ["xz", "log", "log"]
+    for m in ("mlp", "mlp_log", "hnn"):
+        u = torch.tensor(_to_model(y, m))
+        np.testing.assert_allclose(model_to_loss(u, m, default_loss(m)).numpy(), _to_model(y, m))
+        np.testing.assert_allclose(model_to_loss(u, m, "xz").numpy(), y, rtol=1e-12)
+        np.testing.assert_allclose(model_to_loss(u, m, "log").numpy(), _xz_to(y, "log"), rtol=1e-12)
+    np.testing.assert_allclose(loss_noise_scale(y, "xz"), NOISE)
+    np.testing.assert_allclose(loss_noise_scale(y, "log"), NOISE / y)
