@@ -4,8 +4,8 @@ type: software
 title: "Neural ODEs for dynamical systems"
 abstract: "Neural ordinary differential equations (Chen et al., 2018) learn the vector field of a damped pendulum and of the Lotka-Volterra system from short noisy trajectories and are scored on extrapolation beyond the training window. An ablation compares an unconstrained MLP, the same MLP in log-coordinates and a Hamiltonian neural network, trained on one or three trajectories with the exact likelihood of the observation noise and evaluated on unseen orbits over five seeds."
 authors:
-  - given-names: "Camilo Andrés"
-    family-names: "Rozo Lozano"
+  - given-names: "Camilo A."
+    family-names: "Rozo L."
     affiliation: "Universidad Nacional de Colombia"
     email: rozol.ca555@gmail.com
 repository-code: "https://github.com/crozol/02-neural-odes"
