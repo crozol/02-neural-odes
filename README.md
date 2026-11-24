@@ -6,21 +6,37 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24393852.svg)](https://doi.org/10.5281/zenodo.24393852)
 [![Live demo on Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Live%20demo-Hugging%20Face%20Space-FFD21E?style=flat-square)](https://huggingface.co/spaces/crozol/neural-odes-hnn-demo)
 
-**TL;DR** — Learning the right-hand side of pendulum and Lotka-Volterra dynamics from short noisy trajectories with a small MLP integrated by `torchdiffeq.odeint`. Relative extrapolation errors past the training window (mean ± std over 5 seeds) are **8.3 ± 2.4 %** (pendulum) and **0.96 ± 0.57 %** (Lotka-Volterra) for the unconstrained baseline; for Lotka-Volterra, a Hamiltonian Neural Network helps once the training data cover more than one orbit: trained on three trajectories, with the loss measured where the noise is added so that it is the exact likelihood, and scored on five unseen orbits, it reaches **2.6 % ± 0.9 %** relative error and **6.0 %** drift in the conserved `H`, against **4.7 %** and **12.6 %** for the same MLP in the same log-coordinates (5 seeds), with every HNN seed better than every MLP seed on both metrics (Mann-Whitney, two-sided `p = 0.008`). Trained on a single trajectory, no model generalises to new orbits (14–17 %). On that orbit the log-coordinates make the fit track it, but the lower `H` drift comes mostly from measuring the loss in log-coordinates, which over-weights the bottom of the orbit where `H` is most sensitive, not from the Hamiltonian structure. Stack: PyTorch · torchdiffeq · NumPy.
+Neural networks that learn the vector field of an ODE from short noisy trajectories, and a
+controlled ablation of when a Hamiltonian prior helps them generalise.
 
-A numerical experiment: take two textbook ODE systems whose ground-truth
-vector field is known exactly, observe a short noisy trajectory of each, and
-fit a small neural network that approximates the right-hand side
-`dy/dt = f_θ(y, t)`. Then ask the natural question: when the learned ODE is
-integrated forward *past* the time window it was trained on, does it still
-behave like the real system?
+**Summary**
 
-The document walks through the measurement and the analysis in the order you
-would actually perform them. The two systems chosen (a damped pendulum and a
-Lotka-Volterra predator-prey model) are 2-dimensional so every result fits in
-a clean phase-plane figure; they were also picked because they expose two
-qualitatively different extrapolation tests — energy decay in the pendulum,
-conserved orbit in Lotka-Volterra.
+- **Baseline.** A small MLP vector field integrated by `torchdiffeq.odeint` extrapolates past the
+  training window with relative errors of **8.3 ± 2.4 %** (damped pendulum) and **0.96 ± 0.57 %**
+  (Lotka-Volterra), 5 seeds.
+- **The prior pays off with enough data.** Trained on three trajectories with the exact likelihood
+  and scored on five unseen Lotka-Volterra orbits, a Hamiltonian Neural Network reaches **2.6 %**
+  error and **6.0 %** drift in the conserved `H`, against **4.7 %** and **12.6 %** for the same MLP
+  in the same log-coordinates; every HNN seed beats every MLP seed (Mann-Whitney `p = 0.008`).
+- **Not with one trajectory.** Trained on a single orbit, no model generalises to new orbits
+  (14–17 % error).
+- **The naive comparison was confounded.** On the training orbit, the HNN's lower `H` drift came
+  mostly from measuring the loss in log-coordinates, which over-weights the bottom of the orbit
+  where `H` is most sensitive, not from the Hamiltonian structure.
+- **Stack.** PyTorch · torchdiffeq · NumPy; live demo on Hugging Face Spaces.
+
+![Ablation on unseen orbits](figures/hnn_ablation_ic.png)
+
+**Context.** Neural ODEs learn the right-hand side `dy/dt = f_θ(y)` and integrate it with an
+adaptive solver (Chen et al., 2018). Physics priors build structure into `f_θ`: Hamiltonian Neural
+Networks learn a scalar `H_θ` and follow its symplectic gradient (Greydanus et al., 2019), with
+Lagrangian and symplectic variants (Cranmer et al., 2020; Zhong et al., 2020). Comparisons of these
+priors often change the architecture and the coordinates at once and test on the training orbit;
+Section 8 separates the two and tests on orbits the models never saw.
+
+The two systems, a damped pendulum and a Lotka-Volterra predator-prey model, are two-dimensional,
+so every result fits in a phase-plane figure, and they test two kinds of extrapolation: energy
+decay in the pendulum, a conserved orbit in Lotka-Volterra.
 
 ---
 
@@ -557,59 +573,51 @@ The same models with the loss measured in either coordinate system:
 
 Three results follow.
 
-1. **On the training orbit, the coordinates make the fit track the orbit;
-   the loss does most of the conserving.** With one trajectory, moving the
-   MLP to log-coordinates cuts its error on the training orbit from 1.7 % to
-   0.4 % with either loss. Its `H` drift falls mostly with the loss instead:
-   measuring the residuals in log-coordinates lowers it from 6.5 % to 3.7 %
-   for the MLP in `(x, z)` and from 5.1 % to 2.1 % for the MLP in
-   `(ln x, ln z)`, while the change of coordinates under the exact
-   likelihood lowers it only from 6.5 % to 5.1 %. The HNN follows the same
-   pattern (4.7 % with the likelihood, 2.4 % with the loss in
-   log-coordinates). The reason is in `H = d x − c ln x + b z − a ln z`: its
-   logarithmic terms make it most sensitive where the populations are small,
-   the region a loss in log-coordinates over-weights (by up to 7 500× on the
-   training orbits, against the likelihood). The drop in `H` drift of
-   Section 8.1 came mostly from the loss, not from the Hamiltonian
-   structure.
-2. **One trajectory does not determine the vector field.** Trained on a
-   single orbit, all three models miss unseen orbits by 14–17 %, the HNN
-   included. The HNN's predicted orbits still close (`H` drift 12.1 % against
-   66–83 %), but they are the wrong orbits: a conserved `H_θ` that is
-   accurate along one curve need not be accurate anywhere else.
-3. **With three trajectories, the prior pays off.** On unseen orbits the
-   HNN's error is 1.8 times lower than that of the log-coordinate MLP
-   (2.57 % ± 0.94 % against 4.65 % ± 0.45 %) and its `H` drift 2.1 times
-   lower (6.03 % against 12.6 %), with every seed better than every MLP seed
-   on both metrics (Mann-Whitney, two-sided `p = 0.008`, the smallest five
-   seeds against five can give). The comparison is paired: the five test
-   orbits are the same for every seed, and the HNN beats the
-   log-coordinate MLP of the same seed on both metrics in 5 of 5 seeds
-   (sign test, two-sided `p = 0.06`). Per orbit, its `H` drift is lower in
-   23 of 25 seed–orbit pairs and its error in 20 of 25; the exceptions are
-   on the orbit `(5, 3.5)`, below the training range (both drift
-   exceptions and three error ones), and on `(8, 4)`. Panel (c) shows why:
-   the MLP's orbits spiral slowly inward or outward, while the HNN's stay
-   closed and lie close to the true ones, including the two orbits above
-   the training range. With the loss in log-coordinates, as in Section 8.1,
-   the gap is wider (2.38 % and 2.18 % against 5.03 % and 8.60 %), with the
-   same separation.
+1. **On the training orbit, the coordinates make the fit track the orbit; the loss does most
+   of the conserving.**
+   - With one trajectory, moving the MLP to log-coordinates cuts its error on the training
+     orbit from 1.7 % to 0.4 % with either loss.
+   - Its `H` drift falls mostly with the loss: measuring the residuals in log-coordinates lowers
+     it from 6.5 % to 3.7 % (MLP in `(x, z)`) and from 5.1 % to 2.1 % (MLP in `(ln x, ln z)`),
+     while the change of coordinates under the exact likelihood lowers it only from 6.5 % to
+     5.1 %. The HNN follows the same pattern (4.7 % against 2.4 %).
+   - The reason is in `H = d x − c ln x + b z − a ln z`: its logarithmic terms make it most
+     sensitive where the populations are small, the region a loss in log-coordinates
+     over-weights (by up to 7 500× on the training orbits). The drop in `H` drift of Section 8.1
+     came mostly from the loss, not from the Hamiltonian structure.
+2. **One trajectory does not determine the vector field.** Trained on a single orbit, all three
+   models miss unseen orbits by 14–17 %, the HNN included. The HNN's orbits still close (`H` drift
+   12.1 % against 66–83 %), but they are the wrong orbits: an `H_θ` accurate along one curve need
+   not be accurate anywhere else.
+3. **With three trajectories, the prior pays off.**
+   - On unseen orbits the HNN's error is 1.8 times lower than that of the log-coordinate MLP
+     (2.57 % ± 0.94 % against 4.65 % ± 0.45 %) and its `H` drift 2.1 times lower (6.03 % against
+     12.6 %).
+   - Every HNN seed is better than every MLP seed on both metrics (Mann-Whitney, two-sided
+     `p = 0.008`, the smallest five seeds against five can give); paired by seed, 5 of 5 (sign
+     test, two-sided `p = 0.06`).
+   - Per orbit, its `H` drift is lower in 23 of 25 seed–orbit pairs and its error in 20 of 25; the
+     exceptions are on the orbit `(5, 3.5)`, below the training range, and on `(8, 4)`.
+   - Panel (c) shows why: the MLP's orbits spiral slowly inward or outward, while the HNN's stay
+     closed near the true ones, including the two orbits above the training range.
+   - With the loss in log-coordinates the gap is wider (2.38 % and 2.18 % against 5.03 % and
+     8.60 %), with the same separation.
 
-The learned initial states move away from the true ones: with three
-trajectories, by up to `0.27` in `(x, z)` for the MLP, and `0.09` in
-log-coordinates for the log-coordinate MLP and `0.03` for the HNN. With the
-initial state free, the network and the starting point trade off against
-each other; scoring from the exact initial conditions, as done here, keeps
-that trade-off out of the comparison. Measured from the first observation,
-they move a median of 16 noise units for the log-coordinate MLP and 9 for
-the HNN. A Gaussian prior that ties each initial state to that observation,
-with the observation noise as its width (`--y0-prior`; with the loss in
-`(x, z)`, the exact MAP prior, though it counts that observation a second
-time), barely moves them (15 and 8 noise units), and the comparison does not
-change: HNN `1.98% ± 0.82%` error and `5.21% ± 1.12%` drift, log-coordinate
-MLP `4.22% ± 0.25%` and `11.1% ± 2.0%`, with every HNN seed better on both.
-Since the loss is the likelihood, the displacement is not an artefact of how
-the loss weighs `y0`: the starting point absorbs model error.
+**The learned initial states.**
+
+- They move away from the true ones: with three trajectories, by up to `0.27` in `(x, z)` for
+  the MLP, `0.09` in log-coordinates for the log-coordinate MLP and `0.03` for the HNN. With the
+  initial state free, network and starting point trade off; scoring from the exact initial
+  conditions keeps that trade-off out of the comparison.
+- Measured from the first observation, they move a median of 16 noise units for the
+  log-coordinate MLP and 9 for the HNN.
+- A Gaussian prior tying each initial state to that observation, with the noise as its width
+  (`--y0-prior`; with the loss in `(x, z)`, the exact MAP prior, though it counts that
+  observation twice), barely moves them (15 and 8 noise units) and does not change the
+  comparison: HNN `1.98% ± 0.82%` error and `5.21% ± 1.12%` drift, log-coordinate MLP
+  `4.22% ± 0.25%` and `11.1% ± 2.0%`, every HNN seed better on both.
+- Since the loss is the likelihood, the displacement is not an artefact of how the loss weighs
+  `y0`: the starting point absorbs model error.
 
 ### 8.3 · What this rules out, and what it doesn't
 
